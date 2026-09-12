@@ -23,13 +23,15 @@
     #reader {
       width: 100% !important;
       border: none !important;
+      min-height: 270px;
     }
     #reader video {
-      border-radius: 1rem;
+      border-radius: 0.75rem;
       object-fit: cover;
+      width: 100% !important;
     }
     #reader__scan_region {
-      border-radius: 1rem;
+      border-radius: 0.75rem;
       overflow: hidden;
     }
     .custom-scroll::-webkit-scrollbar {
@@ -79,7 +81,8 @@
             <i data-lucide="map-pin" class="w-3 h-3 mr-1 text-blue-600"></i> 行程 (分頁)
           </label>
           <select v-model="selectedTrip" @change="onTripChange" class="w-full text-xs font-semibold bg-transparent focus:outline-none truncate mt-0.5 cursor-pointer">
-            <option v-if="trips.length === 0" value="">載入中...</option>
+            <option v-if="!apiUrl && !isGasNative" value="">(請點右上齒輪設定)</option>
+            <option v-else-if="trips.length === 0" value="">(載入中...)</option>
             <option v-for="t in trips" :key="t" :value="t">{{ t }}</option>
           </select>
         </div>
@@ -100,8 +103,8 @@
     <!-- Main Content Area -->
     <main class="flex-1 p-4 space-y-4">
       
-      <!-- API 未設定或錯誤提示 -->
-      <div v-if="!apiUrl" class="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm flex items-start space-x-3">
+      <!-- API 未設定提示 -->
+      <div v-if="!apiUrl && !isGasNative" class="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm flex items-start space-x-3">
         <i data-lucide="alert-triangle" class="w-6 h-6 text-amber-600 shrink-0 mt-0.5"></i>
         <div>
           <h4 class="font-bold text-amber-900">尚未設定 Google Apps Script API</h4>
@@ -112,8 +115,25 @@
         </div>
       </div>
 
+      <!-- 連線錯誤或載入失敗診斷卡片 -->
+      <div v-if="(apiUrl || isGasNative) && connectionError" class="p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 text-sm flex items-start space-x-3">
+        <i data-lucide="alert-octagon" class="w-6 h-6 text-rose-600 shrink-0 mt-0.5"></i>
+        <div class="flex-1">
+          <h4 class="font-bold text-rose-900">無法載入行程名單 ({{ connectionError.title }})</h4>
+          <p class="text-xs text-rose-700 mt-1 leading-relaxed">{{ connectionError.message }}</p>
+          <div class="mt-2.5 flex space-x-2">
+            <button @click="fetchTrips" class="text-xs bg-rose-600 text-white px-3 py-1.5 rounded-lg font-medium shadow-sm hover:bg-rose-700">
+              重新載入
+            </button>
+            <button @click="openSettings" class="text-xs bg-white border border-rose-300 text-rose-800 px-3 py-1.5 rounded-lg font-medium shadow-sm hover:bg-rose-100">
+              檢查網址與密鑰
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- 統計儀表板 (Progress Stats) -->
-      <div v-if="apiUrl && selectedTrip" class="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-2xl p-4 shadow-lg">
+      <div v-if="(apiUrl || isGasNative) && selectedTrip" class="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-2xl p-4 shadow-lg">
         <div class="flex justify-between items-center mb-2">
           <span class="text-xs font-medium text-slate-300 flex items-center">
             <span class="w-2 h-2 rounded-full mr-1.5" :class="filteredStats.unboarded === 0 ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'"></span>
@@ -167,37 +187,131 @@
 
       <!-- ================= 頁籤 1: 鏡頭掃描介面 ================= -->
       <div v-show="currentTab === 'scan'" class="space-y-4">
-        <!-- 掃描視窗容器 -->
-        <div class="relative bg-slate-900 rounded-2xl overflow-hidden shadow-md border-2 border-slate-300">
-          <div id="reader"></div>
+        
+        <!-- 原生相機拍照 Input (相容所有手機與內嵌 WebKit 瀏覽器) -->
+        <input 
+          type="file" 
+          id="photoFileInput" 
+          accept="image/*" 
+          capture="environment" 
+          class="hidden" 
+          @change="onPhotoSelected" 
+        />
 
-          <!-- 掃描指引覆蓋層 -->
-          <div class="p-3 bg-slate-900/90 text-center text-xs text-slate-300 flex items-center justify-between">
-            <span class="flex items-center text-slate-400">
-              <i data-lucide="shield" class="w-4 h-4 mr-1 text-emerald-400"></i>
-              E2EE 簽章防偽核銷中...
+        <!-- 掃描視窗容器 -->
+        <div class="relative bg-slate-900 rounded-2xl overflow-hidden shadow-lg border-2 border-slate-700 min-h-[300px] flex flex-col justify-center">
+          
+          <!-- 實際 HTML5 QR Code 渲染視窗 (隨時保持在 DOM 中以利尺寸偵測) -->
+          <div id="reader" class="w-full"></div>
+
+          <!-- 鏡頭未啟動或啟動中時的互動覆蓋層 -->
+          <div v-if="!isScanningActive" class="absolute inset-0 bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 flex flex-col items-center justify-center p-5 text-center z-10">
+            
+            <!-- 狀態 1: 鏡頭啟動中 -->
+            <div v-if="cameraStarting" class="flex flex-col items-center py-6 space-y-3">
+              <i data-lucide="loader-2" class="w-10 h-10 text-blue-400 animate-spin"></i>
+              <p class="text-sm font-semibold text-white">正在連線相機鏡頭...</p>
+              <p class="text-xs text-slate-300">若手機詢問，請點選「允許」使用相機</p>
+            </div>
+
+            <!-- 狀態 2: 啟動受阻或權限問題 -->
+            <div v-else-if="cameraError" class="w-full bg-rose-950/80 border border-rose-600/50 rounded-xl p-4 text-left space-y-2.5">
+              <div class="flex items-center space-x-2 text-rose-300 font-bold text-xs">
+                <i data-lucide="alert-circle" class="w-4 h-4 text-rose-400 shrink-0"></i>
+                <span>相機啟動受限</span>
+              </div>
+              <p class="text-[11px] text-rose-200 leading-relaxed">{{ cameraError }}</p>
+              
+              <div class="pt-2 flex flex-col gap-2">
+                <button @click="triggerPhotoScan" class="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 shadow-md transition">
+                  <i data-lucide="camera" class="w-4 h-4"></i>
+                  <span>📸 改用拍照掃描 (相容 100%，無須串流權限)</span>
+                </button>
+                <button @click="startScanner" class="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium flex items-center justify-center space-x-1 border border-slate-600 transition">
+                  <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                  <span>重新嘗試連線相機</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 狀態 3: 尚未啟動 (清楚引導點擊以符合手機安全性要求) -->
+            <div v-else class="flex flex-col items-center py-4 space-y-3.5 max-w-xs">
+              <div class="w-14 h-14 rounded-full bg-blue-500/20 border border-blue-400/40 flex items-center justify-center text-blue-400 shadow-inner">
+                <i data-lucide="camera" class="w-7 h-7"></i>
+              </div>
+              <div>
+                <h3 class="text-sm font-bold text-white">點擊啟動點名相機</h3>
+                <p class="text-[11px] text-slate-300 mt-1 leading-normal">
+                  手機安全規範要求需由您主動點擊以授權開啟相機
+                </p>
+              </div>
+              
+              <div class="w-full space-y-2 pt-1">
+                <button @click="startScanner" class="w-full py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-lg shadow-blue-500/30 transition">
+                  <i data-lucide="video" class="w-4 h-4"></i>
+                  <span>📷 開啟即時相機鏡頭</span>
+                </button>
+
+                <button @click="triggerPhotoScan" class="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-md shadow-emerald-600/30 transition">
+                  <i data-lucide="camera" class="w-4 h-4"></i>
+                  <span>📸 拍照掃描 (無須串流權限)</span>
+                </button>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- 鏡頭正在串流運作時的操作覆蓋列 -->
+          <div v-if="isScanningActive" class="p-2.5 bg-slate-900/90 text-center text-xs text-slate-300 flex items-center justify-between border-t border-slate-700/60 z-20">
+            <span class="flex items-center text-slate-300 text-[11px]">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse mr-1.5"></span>
+              即時對焦辨識中...
             </span>
-            <div class="flex items-center space-x-2">
-              <button @click="restartScanner" class="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-white text-[10px] flex items-center">
-                <i data-lucide="refresh-cw" class="w-3.5 h-3.5 mr-1"></i> 重啟鏡頭
+            <div class="flex items-center space-x-1.5">
+              <button v-if="availableCameras.length > 1" @click="switchCamera" class="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-white text-[11px] flex items-center space-x-1 transition" title="切換前後鏡頭">
+                <i data-lucide="switch-camera" class="w-3.5 h-3.5"></i>
+                <span>換鏡頭</span>
+              </button>
+              <button @click="triggerPhotoScan" class="p-1.5 bg-emerald-700 hover:bg-emerald-600 rounded-lg text-white text-[11px] flex items-center space-x-1 transition" title="拍照對焦核銷">
+                <i data-lucide="camera" class="w-3.5 h-3.5"></i>
+                <span>拍照</span>
+              </button>
+              <button @click="stopScanner" class="p-1.5 bg-rose-700 hover:bg-rose-600 rounded-lg text-white text-[11px] flex items-center space-x-1 transition" title="暫停鏡頭">
+                <i data-lucide="power" class="w-3.5 h-3.5"></i>
+                <span>關閉</span>
               </button>
             </div>
           </div>
         </div>
 
-        <!-- 手動輸入條碼核銷 (備用) -->
-        <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex items-center space-x-2">
-          <i data-lucide="keyboard" class="w-5 h-5 text-slate-400 ml-1"></i>
-          <input 
-            v-model="manualInputBarcode" 
-            @keyup.enter="handleManualCheckIn" 
-            type="text" 
-            placeholder="輸入工號/Token/外接條碼槍..." 
-            class="flex-1 text-sm bg-transparent focus:outline-none"
-          />
-          <button @click="handleManualCheckIn" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm">
-            核銷
+        <!-- 拍照辨識解析中狀態條 -->
+        <div v-if="isProcessingPhoto" class="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-800 text-xs flex items-center justify-center space-x-2 animate-pulse">
+          <i data-lucide="loader-2" class="w-4 h-4 animate-spin text-blue-600"></i>
+          <span class="font-medium">正在解析照片條碼並連線核銷，請稍候...</span>
+        </div>
+
+        <!-- 備用核銷工具 (拍照掃描 + 手動輸入條碼) -->
+        <div class="grid grid-cols-1 gap-2">
+          <!-- 拍照掃描按鈕 (永遠醒目可點) -->
+          <button @click="triggerPhotoScan" class="w-full py-2 px-3 bg-white border border-emerald-300 hover:bg-emerald-50 active:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-center space-x-2 shadow-sm transition">
+            <i data-lucide="camera" class="w-4 h-4 text-emerald-600"></i>
+            <span>📸 點此拍照掃描 (支援模糊/暗處對焦，相容性 100%)</span>
           </button>
+
+          <!-- 手動輸入條碼核銷 (備用) -->
+          <div class="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm flex items-center space-x-2">
+            <i data-lucide="keyboard" class="w-4 h-4 text-slate-400 ml-1"></i>
+            <input 
+              v-model="manualInputBarcode" 
+              @keyup.enter="handleManualCheckIn" 
+              type="text" 
+              placeholder="輸入工號 / Token / 條碼槍..." 
+              class="flex-1 text-xs bg-transparent focus:outline-none"
+            />
+            <button @click="handleManualCheckIn" class="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm">
+              手動核銷
+            </button>
+          </div>
         </div>
 
         <!-- 最近一次掃描結果卡片 -->
@@ -357,13 +471,25 @@
 
         <div class="space-y-3 text-xs">
           <div>
-            <label class="font-bold text-slate-700 block mb-1">Google Apps Script Web App 網址</label>
+            <div class="flex justify-between items-center mb-1">
+              <label class="font-bold text-slate-700 block">Google Apps Script Web App 網址</label>
+              <button @click="testConnection" type="button" :disabled="testingConnection" class="text-[11px] text-blue-600 hover:text-blue-800 font-bold underline flex items-center">
+                <span v-if="testingConnection" class="mr-1">⏳</span>
+                <span>{{ testingConnection ? '診斷中...' : '🔍 測試連線' }}</span>
+              </button>
+            </div>
             <textarea 
               v-model="tempApiUrl" 
               rows="2" 
               placeholder="https://script.google.com/macros/s/.../exec"
               class="w-full p-2.5 border border-slate-300 rounded-xl font-mono text-[11px] focus:outline-none focus:ring-2 focus:ring-blue-500"
             ></textarea>
+            <div v-if="urlWarning" class="p-2 mt-1.5 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-[11px] leading-relaxed">
+              ⚠️ {{ urlWarning }}
+            </div>
+            <div v-if="testResult" class="p-2.5 mt-1.5 rounded-lg text-xs leading-relaxed" :class="testResult.success ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'">
+              {{ testResult.message }}
+            </div>
           </div>
 
           <div>
@@ -455,6 +581,34 @@
 
     createApp({
       setup() {
+        // 自動從 URL 參數 (?api=...&key=...) 讀取或自動從當前 Google 網域帶入
+        try {
+          const urlParams = new URLSearchParams(window.location.search);
+          const queryApi = urlParams.get('api');
+          if (queryApi) {
+            localStorage.setItem("BUS_API_URL", queryApi.trim());
+          }
+          const queryKey = urlParams.get('key');
+          if (queryKey) {
+            localStorage.setItem("BUS_SECRET_KEY", queryKey.trim());
+          }
+
+          // 若直接在 Google Apps Script 執行 (script.google.com)，自動設定同源 API 網址
+          if (!localStorage.getItem("BUS_API_URL") && window.location.hostname.includes("script.google.com")) {
+            const gasUrl = window.location.href.split('?')[0];
+            localStorage.setItem("BUS_API_URL", gasUrl);
+          }
+        } catch (e) {
+          console.warn(e);
+        }
+
+        // 判斷是否在 Google Apps Script 原生容器中執行 (全面避開 CORS)
+        const isGasNative = ref(
+          (typeof google !== 'undefined' && typeof google.script !== 'undefined' && typeof google.script.run !== 'undefined') ||
+          window.location.hostname.includes("googleusercontent.com") ||
+          window.location.hostname.includes("script.google.com")
+        );
+
         // 設定
         const apiUrl = ref(localStorage.getItem("BUS_API_URL") || "");
         const tempApiUrl = ref(apiUrl.value);
@@ -464,6 +618,55 @@
         const showSettingsModal = ref(false);
         const soundEnabled = ref(localStorage.getItem("BUS_SOUND") !== "false");
         const vibrateEnabled = ref(localStorage.getItem("BUS_VIBRATE") !== "false");
+
+        // 連線診斷與錯誤處理
+        const connectionError = ref(null);
+        const testingConnection = ref(false);
+        const testResult = ref(null);
+
+        const urlWarning = computed(() => {
+          const url = tempApiUrl.value.trim();
+          if (!url) return "";
+          if (url.includes("/edit")) return "您複製到的是 Apps Script 編輯器網址！請點右上角「部署」> 複製「網頁應用程式」網址。";
+          if (url.endsWith("/dev")) return "您複製到的是測試用 /dev 網址！必須是正式部署的 /exec 網址。";
+          if (!url.startsWith("https://script.google.com/macros/s/")) return "網址格式不符 (需以 https://script.google.com/macros/s/ 開頭)";
+          if (!url.endsWith("/exec")) return "網址結尾必須是 /exec";
+          return "";
+        });
+
+        // 診斷測試連線
+        const testConnection = async () => {
+          const url = tempApiUrl.value.trim();
+          if (!url) {
+            testResult.value = { success: false, message: "請先輸入 Web App 網址！" };
+            return;
+          }
+          testingConnection.value = true;
+          testResult.value = null;
+          try {
+            const key = tempSecretKey.value.trim() || secretKey.value;
+            const res = await fetch(`${url}?action=getTrips&apiKey=${encodeURIComponent(key)}&_t=${Date.now()}`);
+            const data = await res.json();
+            if (data.success && data.trips) {
+              testResult.value = { 
+                success: true, 
+                message: `✅ 連線成功！成功讀取 ${data.trips.length} 個行程分頁：[${data.trips.join(', ')}]` 
+              };
+            } else {
+              testResult.value = { 
+                success: false, 
+                message: `❌ 後端拒絕連線：${data.message || '未知錯誤'}` 
+              };
+            }
+          } catch (err) {
+            testResult.value = { 
+              success: false, 
+              message: `❌ 連線失敗 (跨網域存取 CORS 被阻擋)。最常見原因：在 Apps Script 部署設定中，「誰可以存取 (Who has access)」未設定為「所有人 (Anyone)」，導致連線被 Google 轉跳至登入畫面。` 
+            };
+          } finally {
+            testingConnection.value = false;
+          }
+        };
 
         // 資料狀態
         const trips = ref([]);
@@ -479,9 +682,14 @@
         const filterStatus = ref("ALL");
         const manualInputBarcode = ref("");
 
-        // 掃描器
+        // 掃描器與相機狀態
         let html5QrCode = null;
         const isScanningActive = ref(false);
+        const cameraStarting = ref(false);
+        const cameraError = ref(null);
+        const isProcessingPhoto = ref(false);
+        const availableCameras = ref([]);
+        const selectedCameraId = ref("");
         const lastScanResult = ref(null);
         let scanThrottleTimer = null;
 
@@ -644,38 +852,117 @@
           if (lastScanResult.value.code === "ALREADY_BOARDED") return "⚠️ 重複核銷";
           if (lastScanResult.value.code === "WRONG_BUS") return "❌ 車次不符！";
           if (lastScanResult.value.code === "INVALID_SIGNATURE") return "❌ 數位簽章無效 (防偽警告)";
+          if (lastScanResult.value.code === "PHOTO_PARSE_FAILED") return "📷 照片未偵測到條碼";
           return "❌ 無法登車";
         });
 
         // ================= API 串接與資料載入 =================
         const fetchTrips = async () => {
-          if (!apiUrl.value) return;
           loading.value = true;
+          connectionError.value = null;
+
+          // 1. Google Apps Script 原生模式 (直接呼叫 RPC，100% 免除 CORS 跨網域阻擋)
+          if (typeof google !== 'undefined' && google.script && google.script.run) {
+            google.script.run
+              .withSuccessHandler((data) => {
+                loading.value = false;
+                if (data && data.success && data.trips) {
+                  trips.value = data.trips;
+                  if (trips.value.length > 0 && !trips.value.includes(selectedTrip.value)) {
+                    selectedTrip.value = trips.value[0];
+                    localStorage.setItem("BUS_SELECTED_TRIP", selectedTrip.value);
+                  }
+                  if (selectedTrip.value) {
+                    fetchTripData(selectedTrip.value);
+                  }
+                }
+              })
+              .withFailureHandler((err) => {
+                loading.value = false;
+                connectionError.value = {
+                  title: "載入失敗",
+                  message: err ? err.toString() : "無法取得行程資料"
+                };
+              })
+              .apiGetTrips();
+            return;
+          }
+
+          // 2. 外部網站模式 (GitHub Pages 透過 fetch)
+          if (!apiUrl.value) {
+            loading.value = false;
+            return;
+          }
           try {
-            const res = await fetch(`${apiUrl.value}?action=getTrips&apiKey=${encodeURIComponent(secretKey.value)}`);
+            const res = await fetch(`${apiUrl.value}?action=getTrips&apiKey=${encodeURIComponent(secretKey.value)}&_t=${Date.now()}`);
             const data = await res.json();
             if (data.success && data.trips) {
               trips.value = data.trips;
-              if (trips.value.length > 0 && !trips.value.includes(selectedTrip.value)) {
+              if (trips.value.length === 0) {
+                connectionError.value = {
+                  title: "試算表無分頁資料",
+                  message: "試算表中尚未建立任何行程分頁（分頁名稱請勿以底線 _ 開頭）。"
+                };
+              } else if (!trips.value.includes(selectedTrip.value)) {
                 selectedTrip.value = trips.value[0];
                 localStorage.setItem("BUS_SELECTED_TRIP", selectedTrip.value);
               }
               if (selectedTrip.value) {
                 await fetchTripData(selectedTrip.value);
               }
-            } else if (data.code === "UNAUTHORIZED") {
-              alert(data.message);
+            } else {
+              connectionError.value = {
+                title: "後端回傳錯誤",
+                message: data.message || "未能成功取得行程分頁名單。"
+              };
+              if (data.code === "UNAUTHORIZED") {
+                alert(data.message);
+              }
             }
           } catch (e) {
             console.error("載入行程失敗:", e);
+            connectionError.value = {
+              title: "跨網域存取 (CORS) 阻擋或網址無效",
+              message: "瀏覽器無法連線至 Google Apps Script。請確認部署設定中「誰可以存取」是否設為「所有人 (Anyone)」。"
+            };
           } finally {
             loading.value = false;
           }
         };
 
         const fetchTripData = async (tripName) => {
-          if (!apiUrl.value || !tripName) return;
+          if (!tripName) return;
           loading.value = true;
+
+          // 1. Google Apps Script 原生模式
+          if (typeof google !== 'undefined' && google.script && google.script.run) {
+            google.script.run
+              .withSuccessHandler((data) => {
+                loading.value = false;
+                if (data && data.success) {
+                  buses.value = data.buses || [];
+                  passengers.value = data.passengers || [];
+                  if (selectedBus.value !== "ALL" && !buses.value.includes(selectedBus.value)) {
+                    selectedBus.value = "ALL";
+                  }
+                  if (currentTab.value === "tickets") {
+                    nextTick(() => renderAllLocalQrCodes());
+                  }
+                }
+              })
+              .withFailureHandler((err) => {
+                loading.value = false;
+                console.error("載入名單失敗:", err);
+              })
+              .apiGetTripData(tripName);
+            return;
+          }
+
+          // 2. 外部網站模式
+          if (!apiUrl.value) {
+            loading.value = false;
+            return;
+          }
           try {
             const res = await fetch(`${apiUrl.value}?action=getTripData&trip=${encodeURIComponent(tripName)}&apiKey=${encodeURIComponent(secretKey.value)}`);
             const data = await res.json();
@@ -780,22 +1067,28 @@
             time: timeNowStr
           };
 
-          // 4. 背景送回 Google Apps Script (攜帶 API Key)
-          try {
-            fetch(apiUrl.value, {
-              method: "POST",
-              mode: "no-cors",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                action: "checkIn",
-                apiKey: secretKey.value,
-                trip: selectedTrip.value,
-                bus: selectedBus.value,
-                barcode: cleanCode
-              })
-            }).catch(err => console.error("背景同步回寫出錯:", err));
-          } catch (e) {
-            console.error("發送核銷請求失敗:", e);
+          // 4. 背景送回 Google 進行核銷記錄
+          if (typeof google !== 'undefined' && google.script && google.script.run) {
+            google.script.run
+              .withFailureHandler((err) => console.error("背景核銷出錯:", err))
+              .apiCheckIn(selectedTrip.value, selectedBus.value, cleanCode);
+          } else if (apiUrl.value) {
+            try {
+              fetch(apiUrl.value, {
+                method: "POST",
+                mode: "no-cors",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  action: "checkIn",
+                  apiKey: secretKey.value,
+                  trip: selectedTrip.value,
+                  bus: selectedBus.value,
+                  barcode: cleanCode
+                })
+              }).catch(err => console.error("背景同步回寫出錯:", err));
+            } catch (e) {
+              console.error("發送核銷請求失敗:", e);
+            }
           }
         };
 
@@ -812,7 +1105,11 @@
 
           if (newStatus === "已上車") playBeep("success");
 
-          if (apiUrl.value) {
+          if (typeof google !== 'undefined' && google.script && google.script.run) {
+            google.script.run
+              .withFailureHandler((e) => console.error(e))
+              .apiToggleStatus(selectedTrip.value, p.id, newStatus);
+          } else if (apiUrl.value) {
             fetch(apiUrl.value, {
               method: "POST",
               mode: "no-cors",
@@ -828,20 +1125,56 @@
           }
         };
 
-        // ================= QR Code 相機初始化 =================
+        // ================= QR Code 相機控制 =================
         const startScanner = async () => {
+          cameraStarting.value = true;
+          cameraError.value = null;
+
           try {
             if (!html5QrCode) {
-              html5QrCode = new Html5Qrcode("reader");
+              html5QrCode = new Html5Qrcode("reader", {
+                verbose: false,
+                experimentalFeatures: {
+                  useBarCodeDetectorIfSupported: true
+                }
+              });
             }
+
+            if (isScanningActive.value) {
+              try { await html5QrCode.stop(); } catch (e) {}
+              isScanningActive.value = false;
+            }
+
+            // 嘗試取得相機清單以優先選取後置鏡頭
+            try {
+              const devices = await Html5Qrcode.getCameras();
+              if (devices && devices.length > 0) {
+                availableCameras.value = devices;
+                if (!selectedCameraId.value) {
+                  const backCam = devices.find(d => /back|rear|environment|後/i.test(d.label));
+                  selectedCameraId.value = backCam ? backCam.id : devices[devices.length - 1].id;
+                }
+              }
+            } catch (camErr) {
+              console.warn("無法取得鏡頭清單:", camErr);
+            }
+
             const config = {
               fps: 15,
-              qrbox: { width: 250, height: 250 },
+              qrbox: (viewfinderWidth, viewfinderHeight) => {
+                const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+                const qrboxSize = Math.max(180, Math.floor(minEdge * 0.72));
+                return { width: qrboxSize, height: qrboxSize };
+              },
               aspectRatio: 1.0
             };
 
+            const cameraParam = selectedCameraId.value 
+              ? selectedCameraId.value 
+              : { facingMode: "environment" };
+
             await html5QrCode.start(
-              { facingMode: "environment" },
+              cameraParam,
               config,
               (decodedText) => {
                 if (scanThrottleTimer) return;
@@ -850,17 +1183,92 @@
               },
               () => {}
             );
+
             isScanningActive.value = true;
+            cameraError.value = null;
           } catch (err) {
             console.error("相機啟動失敗:", err);
+            isScanningActive.value = false;
+            const errMsg = (err && err.message) ? err.message : String(err);
+            if (errMsg.includes("NotAllowedError") || errMsg.includes("Permission denied") || errMsg.includes("PermissionDismissedError")) {
+              cameraError.value = "⚠️ 權限被拒絕：瀏覽器未允許相機存取。請於手機設定或網址列中允許相機，或點擊下方改用「📸 拍照掃描」。";
+            } else if (errMsg.includes("NotFoundError") || errMsg.includes("DevicesNotFoundError")) {
+              cameraError.value = "⚠️ 找不到鏡頭：裝置未偵測到可用相機。請改用「📸 拍照掃描」或手動輸入。";
+            } else if (errMsg.includes("NotReadableError") || errMsg.includes("TrackStartError")) {
+              cameraError.value = "⚠️ 鏡頭被佔用：相機可能正在被其他 App 使用中，請先關閉其他應用程式後重試。";
+            } else {
+              cameraError.value = `⚠️ 即時相機啟動受限 (${errMsg})。在 Google 網頁內嵌框架中若受限，建議直接點擊下方「📸 拍照掃描」進行核銷！`;
+            }
+          } finally {
+            cameraStarting.value = false;
+            nextTick(() => { if (window.lucide) lucide.createIcons(); });
+          }
+        };
+
+        const stopScanner = async () => {
+          if (html5QrCode && isScanningActive.value) {
+            try {
+              await html5QrCode.stop();
+            } catch (e) {}
+            isScanningActive.value = false;
+            nextTick(() => { if (window.lucide) lucide.createIcons(); });
           }
         };
 
         const restartScanner = async () => {
-          if (html5QrCode && isScanningActive.value) {
-            await html5QrCode.stop();
-          }
+          await stopScanner();
           await startScanner();
+        };
+
+        const switchCamera = async () => {
+          if (availableCameras.value.length <= 1) return;
+          const currIndex = availableCameras.value.findIndex(c => c.id === selectedCameraId.value);
+          const nextIndex = (currIndex + 1) % availableCameras.value.length;
+          selectedCameraId.value = availableCameras.value[nextIndex].id;
+          await restartScanner();
+        };
+
+        // ================= 拍照掃描 (無須鏡頭串流權限，相容性 100%) =================
+        const triggerPhotoScan = () => {
+          const fileInput = document.getElementById("photoFileInput");
+          if (fileInput) fileInput.click();
+        };
+
+        const onPhotoSelected = async (event) => {
+          const file = event.target.files && event.target.files[0];
+          if (!file) return;
+
+          isProcessingPhoto.value = true;
+          // 若即時串流正在執行，先暫停以避免資源競爭
+          if (isScanningActive.value && html5QrCode) {
+            try { await html5QrCode.stop(); } catch (e) {}
+            isScanningActive.value = false;
+          }
+
+          try {
+            if (!html5QrCode) {
+              html5QrCode = new Html5Qrcode("reader", {
+                verbose: false,
+                experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+              });
+            }
+
+            const decodedText = await html5QrCode.scanFile(file, false);
+            handleBarcodeCheckIn(decodedText);
+          } catch (err) {
+            console.warn("照片條碼辨識失敗:", err);
+            playBeep("error");
+            triggerVibration([200, 100, 200]);
+            lastScanResult.value = {
+              code: "PHOTO_PARSE_FAILED",
+              message: "❌ 照片中未偵測到清晰的 QR Code 或條碼，請靠近並對焦後重新拍照核銷。",
+              time: new Date().toLocaleTimeString('zh-TW', { hour12: false })
+            };
+          } finally {
+            isProcessingPhoto.value = false;
+            event.target.value = ""; // 清空以便重複拍攝同一張
+            nextTick(() => { if (window.lucide) lucide.createIcons(); });
+          }
         };
 
         // 繪製純本地 QR Code (無第三方外洩)
@@ -883,11 +1291,12 @@
 
         const switchTab = (tab) => {
           currentTab.value = tab;
+          if (tab !== "scan" && isScanningActive.value) {
+            stopScanner();
+          }
           nextTick(() => {
             if (window.lucide) lucide.createIcons();
-            if (tab === "scan") {
-              if (!isScanningActive.value) startScanner();
-            } else if (tab === "tickets") {
+            if (tab === "tickets") {
               renderAllLocalQrCodes();
             }
           });
@@ -926,13 +1335,14 @@
           localStorage.setItem("BUS_SOUND", soundEnabled.value);
           localStorage.setItem("BUS_VIBRATE", vibrateEnabled.value);
           showSettingsModal.value = false;
+          connectionError.value = null;
+          testResult.value = null;
           fetchTrips();
         };
 
         onMounted(() => {
           if (window.lucide) lucide.createIcons();
-          if (apiUrl.value) fetchTrips();
-          startScanner();
+          if (isGasNative.value || apiUrl.value) fetchTrips();
         });
 
         watch(selectedBus, () => {
@@ -945,7 +1355,12 @@
           nextTick(() => { if (window.lucide) lucide.createIcons(); });
         });
 
+        watch([isScanningActive, cameraStarting, cameraError, isProcessingPhoto, lastScanResult], () => {
+          nextTick(() => { if (window.lucide) lucide.createIcons(); });
+        });
+
         return {
+          isGasNative,
           apiUrl,
           tempApiUrl,
           secretKey,
@@ -953,6 +1368,11 @@
           showSettingsModal,
           soundEnabled,
           vibrateEnabled,
+          connectionError,
+          testingConnection,
+          testResult,
+          urlWarning,
+          testConnection,
           trips,
           selectedTrip,
           buses,
@@ -979,7 +1399,18 @@
           refreshData,
           handleManualCheckIn,
           togglePassengerStatus,
+          isScanningActive,
+          cameraStarting,
+          cameraError,
+          isProcessingPhoto,
+          availableCameras,
+          selectedCameraId,
+          startScanner,
+          stopScanner,
           restartScanner,
+          switchCamera,
+          triggerPhotoScan,
+          onPhotoSelected,
           switchTab,
           showSingleTicket,
           openSettings,
