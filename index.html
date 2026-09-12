@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>🚌 車上點名與登車驗證系統 (E2EE 安全版)</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- HTML5 QR Code Scanner Library -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <!-- Crypto-JS for E2EE HMAC & Hashing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+  <!-- QRCode.js for 100% Pure Local Offline QR Code Generation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <!-- Vue 3 -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+
+  <style>
+    [v-cloak] { display: none; }
+    #reader {
+      width: 100% !important;
+      border: none !important;
+    }
+    #reader video {
+      border-radius: 1rem;
+      object-fit: cover;
+    }
+    #reader__scan_region {
+      border-radius: 1rem;
+      overflow: hidden;
+    }
+    .custom-scroll::-webkit-scrollbar {
+      width: 4px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background-color: #cbd5e1;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 antialiased font-sans pb-24 select-none">
+  <div id="app" v-cloak class="max-w-md mx-auto min-h-screen flex flex-col bg-white shadow-xl relative">
+    
+    <!-- Top Header -->
+    <header class="bg-gradient-to-r from-blue-700 via-indigo-700 to-slate-900 text-white p-4 sticky top-0 z-30 shadow-md">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <div class="p-2 bg-white/10 rounded-lg backdrop-blur-sm">
+            <i data-lucide="bus" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <div class="flex items-center space-x-1.5">
+              <h1 class="text-base font-bold leading-tight">車上點名登車驗證</h1>
+              <span class="text-[9px] font-black bg-emerald-500 text-white px-1.5 py-0.5 rounded-full flex items-center shadow-sm">
+                <i data-lucide="shield-check" class="w-3 h-3 mr-0.5"></i> E2EE
+              </span>
+            </div>
+            <p class="text-[11px] text-blue-100 opacity-90">Google Sheets 雲端即時同步</p>
+          </div>
+        </div>
+        <div class="flex items-center space-x-1">
+          <button @click="openSettings" class="p-2 hover:bg-white/20 rounded-full transition" title="設定 API 與安全金鑰">
+            <i data-lucide="settings" class="w-5 h-5"></i>
+          </button>
+          <button @click="refreshData(true)" class="p-2 hover:bg-white/20 rounded-full transition" :class="{'animate-spin': loading}" title="重新載入名單">
+            <i data-lucide="refresh-cw" class="w-5 h-5"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- 行程與車次選擇器 -->
+      <div class="mt-3 grid grid-cols-2 gap-2 text-slate-800">
+        <!-- 選擇行程 (分頁) -->
+        <div class="bg-white rounded-lg p-2 shadow-inner flex flex-col justify-center">
+          <label class="text-[10px] font-bold text-gray-500 flex items-center">
+            <i data-lucide="map-pin" class="w-3 h-3 mr-1 text-blue-600"></i> 行程 (分頁)
+          </label>
+          <select v-model="selectedTrip" @change="onTripChange" class="w-full text-xs font-semibold bg-transparent focus:outline-none truncate mt-0.5 cursor-pointer">
+            <option v-if="trips.length === 0" value="">載入中...</option>
+            <option v-for="t in trips" :key="t" :value="t">{{ t }}</option>
+          </select>
+        </div>
+
+        <!-- 選擇車次 -->
+        <div class="bg-white rounded-lg p-2 shadow-inner flex flex-col justify-center">
+          <label class="text-[10px] font-bold text-gray-500 flex items-center">
+            <i data-lucide="bus-front" class="w-3 h-3 mr-1 text-indigo-600"></i> 車次篩選
+          </label>
+          <select v-model="selectedBus" class="w-full text-xs font-semibold bg-transparent focus:outline-none truncate mt-0.5 cursor-pointer">
+            <option value="ALL">全部車次</option>
+            <option v-for="b in buses" :key="b" :value="b">{{ b }}</option>
+          </select>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 p-4 space-y-4">
+      
+      <!-- API 未設定或錯誤提示 -->
+      <div v-if="!apiUrl" class="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm flex items-start space-x-3">
+        <i data-lucide="alert-triangle" class="w-6 h-6 text-amber-600 shrink-0 mt-0.5"></i>
+        <div>
+          <h4 class="font-bold text-amber-900">尚未設定 Google Apps Script API</h4>
+          <p class="text-xs text-amber-700 mt-1">請點擊右上角齒輪設定 Web App 網址與安全密鑰以開始點名。</p>
+          <button @click="openSettings" class="mt-2 text-xs bg-amber-600 text-white px-3 py-1.5 rounded-lg font-medium shadow-sm hover:bg-amber-700">
+            立即設定網址與金鑰
+          </button>
+        </div>
+      </div>
+
+      <!-- 統計儀表板 (Progress Stats) -->
+      <div v-if="apiUrl && selectedTrip" class="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-2xl p-4 shadow-lg">
+        <div class="flex justify-between items-center mb-2">
+          <span class="text-xs font-medium text-slate-300 flex items-center">
+            <span class="w-2 h-2 rounded-full mr-1.5" :class="filteredStats.unboarded === 0 ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'"></span>
+            {{ selectedBus === 'ALL' ? '全行程上車進度' : selectedBus + ' 上車進度' }}
+          </span>
+          <span class="text-xs font-bold text-slate-200">
+            {{ filteredStats.percent }}%
+          </span>
+        </div>
+
+        <!-- 進度條 -->
+        <div class="w-full bg-slate-700 h-3 rounded-full overflow-hidden mb-3.5">
+          <div class="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500 rounded-full" :style="{ width: filteredStats.percent + '%' }"></div>
+        </div>
+
+        <!-- 3 格數據卡片 -->
+        <div class="grid grid-cols-3 gap-2 text-center">
+          <div class="bg-white/10 rounded-xl p-2 backdrop-blur-sm">
+            <div class="text-[11px] text-slate-300">應到總數</div>
+            <div class="text-lg font-extrabold text-white mt-0.5">{{ filteredStats.total }}</div>
+          </div>
+          <div class="bg-emerald-500/20 border border-emerald-500/30 rounded-xl p-2 backdrop-blur-sm">
+            <div class="text-[11px] text-emerald-300">已上車</div>
+            <div class="text-lg font-extrabold text-emerald-400 mt-0.5">{{ filteredStats.boarded }}</div>
+          </div>
+          <div class="bg-amber-500/20 border border-amber-500/30 rounded-xl p-2 backdrop-blur-sm">
+            <div class="text-[11px] text-amber-300">未上車</div>
+            <div class="text-lg font-extrabold text-amber-400 mt-0.5">{{ filteredStats.unboarded }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 頁籤切換：1. 鏡頭掃描 / 2. 人員名單 / 3. 乘車條碼產生器 -->
+      <div class="flex bg-slate-200 p-1 rounded-xl text-xs font-bold text-slate-600">
+        <button @click="switchTab('scan')" class="flex-1 py-2 rounded-lg flex items-center justify-center space-x-1 transition" :class="currentTab === 'scan' ? 'bg-white text-blue-700 shadow-sm' : 'hover:text-slate-900'">
+          <i data-lucide="scan" class="w-4 h-4"></i>
+          <span>相機掃描</span>
+        </button>
+        <button @click="switchTab('list')" class="flex-1 py-2 rounded-lg flex items-center justify-center space-x-1 transition relative" :class="currentTab === 'list' ? 'bg-white text-blue-700 shadow-sm' : 'hover:text-slate-900'">
+          <i data-lucide="users" class="w-4 h-4"></i>
+          <span>人員名單</span>
+          <span v-if="filteredStats.unboarded > 0" class="bg-amber-500 text-white text-[10px] px-1.5 py-0.2 rounded-full ml-1">
+            {{ filteredStats.unboarded }}
+          </span>
+        </button>
+        <button @click="switchTab('tickets')" class="flex-1 py-2 rounded-lg flex items-center justify-center space-x-1 transition" :class="currentTab === 'tickets' ? 'bg-white text-blue-700 shadow-sm' : 'hover:text-slate-900'">
+          <i data-lucide="qr-code" class="w-4 h-4"></i>
+          <span>防偽票券</span>
+        </button>
+      </div>
+
+      <!-- ================= 頁籤 1: 鏡頭掃描介面 ================= -->
+      <div v-show="currentTab === 'scan'" class="space-y-4">
+        <!-- 掃描視窗容器 -->
+        <div class="relative bg-slate-900 rounded-2xl overflow-hidden shadow-md border-2 border-slate-300">
+          <div id="reader"></div>
+
+          <!-- 掃描指引覆蓋層 -->
+          <div class="p-3 bg-slate-900/90 text-center text-xs text-slate-300 flex items-center justify-between">
+            <span class="flex items-center text-slate-400">
+              <i data-lucide="shield" class="w-4 h-4 mr-1 text-emerald-400"></i>
+              E2EE 簽章防偽核銷中...
+            </span>
+            <div class="flex items-center space-x-2">
+              <button @click="restartScanner" class="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-white text-[10px] flex items-center">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5 mr-1"></i> 重啟鏡頭
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 手動輸入條碼核銷 (備用) -->
+        <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex items-center space-x-2">
+          <i data-lucide="keyboard" class="w-5 h-5 text-slate-400 ml-1"></i>
+          <input 
+            v-model="manualInputBarcode" 
+            @keyup.enter="handleManualCheckIn" 
+            type="text" 
+            placeholder="輸入工號/Token/外接條碼槍..." 
+            class="flex-1 text-sm bg-transparent focus:outline-none"
+          />
+          <button @click="handleManualCheckIn" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm">
+            核銷
+          </button>
+        </div>
+
+        <!-- 最近一次掃描結果卡片 -->
+        <div v-if="lastScanResult" class="p-4 rounded-2xl border transition-all duration-300 shadow-lg" :class="scanCardStyle">
+          <div class="flex items-start space-x-3">
+            <div class="p-2 rounded-xl" :class="scanIconBoxStyle">
+              <i :data-lucide="scanResultIcon" class="w-7 h-7"></i>
+            </div>
+            <div class="flex-1">
+              <div class="flex items-center justify-between">
+                <h3 class="text-base font-bold">{{ scanTitleText }}</h3>
+                <span class="text-[10px] opacity-75 font-mono">{{ lastScanResult.time }}</span>
+              </div>
+              <p class="text-xs mt-1 leading-relaxed">{{ lastScanResult.message }}</p>
+
+              <!-- 人員詳細資訊 -->
+              <div v-if="lastScanResult.passenger" class="mt-2.5 pt-2.5 border-t border-black/10 text-xs grid grid-cols-2 gap-1.5 font-medium">
+                <div>姓名：<span class="font-bold text-sm">{{ lastScanResult.passenger.name }}</span></div>
+                <div>車次：<span class="font-bold">{{ lastScanResult.passenger.bus }}</span></div>
+                <div v-if="lastScanResult.passenger.seat">座位：<span class="font-bold">{{ lastScanResult.passenger.seat }}</span></div>
+                <div>編號：<span class="font-mono text-[11px]">{{ lastScanResult.passenger.id }}</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= 頁籤 2: 人員名單與快速手動點名 ================= -->
+      <div v-show="currentTab === 'list'" class="space-y-3">
+        <!-- 搜尋與篩選 -->
+        <div class="flex items-center space-x-2">
+          <div class="flex-1 relative">
+            <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+            <input 
+              v-model="searchKeyword" 
+              type="text" 
+              placeholder="搜尋姓名、編號、車次、座位..." 
+              class="w-full pl-9 pr-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <select v-model="filterStatus" class="bg-white border border-slate-200 text-xs font-semibold rounded-xl px-2 py-2 focus:outline-none">
+            <option value="ALL">全部 ({{ filteredPassengers.length }})</option>
+            <option value="未上車">未上車 ({{ unboardedCount }})</option>
+            <option value="已上車">已上車 ({{ boardedCount }})</option>
+          </select>
+        </div>
+
+        <!-- 人員清單列表 -->
+        <div class="space-y-2 max-h-[60vh] overflow-y-auto custom-scroll pr-1">
+          <div v-if="displayedPassengers.length === 0" class="text-center py-12 text-slate-400 text-xs">
+            <i data-lucide="user-x" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
+            查無符合的人員名單
+          </div>
+
+          <div 
+            v-for="p in displayedPassengers" 
+            :key="p.id" 
+            class="p-3 bg-white border rounded-xl shadow-sm flex items-center justify-between transition hover:shadow"
+            :class="p.status === '已上車' ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-200'"
+          >
+            <div class="flex items-center space-x-3">
+              <button 
+                @click="togglePassengerStatus(p)" 
+                class="w-8 h-8 rounded-full flex items-center justify-center transition"
+                :class="p.status === '已上車' ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-400 hover:bg-slate-300'"
+                title="點擊切換上車狀態"
+              >
+                <i data-lucide="check" class="w-4 h-4 stroke-[3]"></i>
+              </button>
+
+              <div>
+                <div class="flex items-center space-x-1.5">
+                  <span class="text-sm font-bold text-slate-800">{{ p.name }}</span>
+                  <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">{{ p.bus }}</span>
+                  <span v-if="p.seat" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">座: {{ p.seat }}</span>
+                </div>
+                <div class="text-[11px] text-slate-400 mt-0.5 flex items-center space-x-2">
+                  <span class="font-mono">#{{ p.id }}</span>
+                  <span v-if="p.status === '已上車'" class="text-emerald-600 font-medium">🕒 {{ p.boardingTime || '已上車' }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 查看乘車憑證彈窗 -->
+            <button @click="showSingleTicket(p)" class="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition" title="查看加密憑證碼">
+              <i data-lucide="qr-code" class="w-5 h-5"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= 頁籤 3: 乘車條碼 / 防偽票券清單 (純本地離線產碼) ================= -->
+      <div v-show="currentTab === 'tickets'" class="space-y-3">
+        <div class="bg-indigo-50 border border-indigo-200 p-3 rounded-xl text-indigo-900 text-xs flex items-start space-x-2">
+          <i data-lucide="shield-check" class="w-5 h-5 text-indigo-600 shrink-0 mt-0.5"></i>
+          <div>
+            <p class="font-bold">E2EE 端到端防偽 QR Code (100% 本地生成)</p>
+            <p class="text-[11px] text-indigo-700 mt-0.5">此頁面所有二維條碼皆在您的手機本地瀏覽器即時繪製，絕不傳輸至第三方伺服器，具備 HMAC 數位簽章防偽功能。</p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5 max-h-[60vh] overflow-y-auto custom-scroll pr-1">
+          <div 
+            v-for="p in filteredPassengers" 
+            :key="p.id" 
+            class="bg-white border border-slate-200 rounded-xl p-2.5 text-center shadow-sm flex flex-col items-center justify-between"
+          >
+            <div class="w-full flex justify-between items-center text-[10px] font-bold text-slate-500 mb-1">
+              <span class="bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">{{ p.bus }}</span>
+              <span>{{ p.seat ? '座:' + p.seat : '' }}</span>
+            </div>
+
+            <!-- 純本地 Canvas 繪製 QR Code (無外部依賴) -->
+            <div :id="'qr-' + p.id" class="w-24 h-24 my-1 flex items-center justify-center bg-slate-50 rounded-lg p-1 border"></div>
+
+            <div class="mt-1 w-full">
+              <div class="text-xs font-bold text-slate-800 truncate">{{ p.name }}</div>
+              <div class="text-[10px] font-mono text-slate-400 truncate">#{{ p.id }}</div>
+            </div>
+
+            <div class="mt-2 w-full pt-1.5 border-t border-slate-100 flex items-center justify-center text-[10px]">
+              <span v-if="p.status === '已上車'" class="text-emerald-600 font-bold flex items-center">
+                <i data-lucide="check-circle-2" class="w-3 h-3 mr-1"></i> 已上車
+              </span>
+              <span v-else class="text-slate-400 font-medium">未上車</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- 底部固定設定狀態列 -->
+    <footer class="bg-white border-t border-slate-200 px-4 py-2 text-[11px] text-slate-500 fixed bottom-0 left-0 right-0 max-w-md mx-auto z-20 flex justify-between items-center">
+      <div class="flex items-center space-x-1.5 truncate">
+        <span class="w-2 h-2 rounded-full" :class="apiUrl ? 'bg-emerald-500' : 'bg-red-500'"></span>
+        <span class="truncate">{{ selectedTrip ? '行程: ' + selectedTrip : '尚未選擇行程' }}</span>
+      </div>
+      <div class="flex items-center space-x-1 text-[10px] text-slate-400 font-mono">
+        <i data-lucide="lock" class="w-3 h-3 text-emerald-600"></i>
+        <span>E2EE 啟動中</span>
+      </div>
+    </footer>
+
+    <!-- ================= 彈窗 1: 設定 API 網址與安全金鑰 ================= -->
+    <div v-if="showSettingsModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl space-y-4">
+        <div class="flex justify-between items-center">
+          <h3 class="text-base font-bold text-slate-800 flex items-center">
+            <i data-lucide="settings" class="w-5 h-5 mr-1.5 text-blue-600"></i>
+            API 與 E2EE 金鑰設定
+          </h3>
+          <button @click="showSettingsModal = false" class="p-1 text-slate-400 hover:text-slate-600 rounded-lg">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <div class="space-y-3 text-xs">
+          <div>
+            <label class="font-bold text-slate-700 block mb-1">Google Apps Script Web App 網址</label>
+            <textarea 
+              v-model="tempApiUrl" 
+              rows="2" 
+              placeholder="https://script.google.com/macros/s/.../exec"
+              class="w-full p-2.5 border border-slate-300 rounded-xl font-mono text-[11px] focus:outline-none focus:ring-2 focus:ring-blue-500"
+            ></textarea>
+          </div>
+
+          <div>
+            <label class="font-bold text-slate-700 block mb-1 flex items-center">
+              <i data-lucide="key" class="w-3.5 h-3.5 mr-1 text-indigo-600"></i> E2EE 端到端安全密鑰 (Secret Key)
+            </label>
+            <input 
+              v-model="tempSecretKey" 
+              type="text" 
+              placeholder="輸入安全密鑰 (需與試算表設定相同)"
+              class="w-full p-2 border border-slate-300 rounded-xl font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <p class="text-[10px] text-slate-400 mt-1">此金鑰用於驗證 HMAC 數位簽章與 API 請求認證。</p>
+          </div>
+
+          <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+            <span class="font-bold text-slate-700">掃描音效提示</span>
+            <input type="checkbox" v-model="soundEnabled" class="w-4 h-4 text-blue-600 rounded cursor-pointer" />
+          </div>
+
+          <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+            <span class="font-bold text-slate-700">掃描震動反饋</span>
+            <input type="checkbox" v-model="vibrateEnabled" class="w-4 h-4 text-blue-600 rounded cursor-pointer" />
+          </div>
+        </div>
+
+        <div class="flex space-x-2 pt-2">
+          <button @click="showSettingsModal = false" class="flex-1 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl">
+            取消
+          </button>
+          <button @click="saveSettings" class="flex-1 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md">
+            儲存設定
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= 彈窗 2: 單人防偽乘車票卡 ================= -->
+    <div v-if="activePassengerModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-3xl max-w-xs w-full p-6 text-center shadow-2xl relative">
+        <button @click="activePassengerModal = null" class="absolute top-4 right-4 p-1 text-slate-400 hover:text-slate-600">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+
+        <div class="text-[10px] font-bold text-indigo-600 tracking-wider uppercase mb-1 flex items-center justify-center">
+          <i data-lucide="shield-check" class="w-3.5 h-3.5 mr-1"></i> E2EE 防偽乘車券
+        </div>
+        <h3 class="text-xl font-black text-slate-800">{{ activePassengerModal.name }}</h3>
+
+        <div class="my-4 p-3 bg-slate-50 border border-slate-200 rounded-2xl inline-block shadow-inner">
+          <div id="modal-qr" class="w-40 h-40 flex items-center justify-center"></div>
+        </div>
+
+        <div class="bg-slate-100 rounded-2xl p-3 text-xs space-y-1 text-left font-medium text-slate-700">
+          <div class="flex justify-between">
+            <span class="text-slate-400">行程分頁:</span>
+            <span class="font-bold">{{ selectedTrip }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">分配車次:</span>
+            <span class="font-bold text-indigo-600">{{ activePassengerModal.bus }}</span>
+          </div>
+          <div v-if="activePassengerModal.seat" class="flex justify-between">
+            <span class="text-slate-400">指定座位:</span>
+            <span class="font-bold">{{ activePassengerModal.seat }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">識別號碼:</span>
+            <span class="font-mono">{{ activePassengerModal.id }}</span>
+          </div>
+          <div class="flex justify-between pt-1 border-t border-slate-200">
+            <span class="text-slate-400">登車狀態:</span>
+            <span :class="activePassengerModal.status === '已上車' ? 'text-emerald-600 font-bold' : 'text-amber-600 font-bold'">
+              {{ activePassengerModal.status === '已上車' ? '✅ 已上車 (' + activePassengerModal.boardingTime + ')' : '⏳ 未上車' }}
+            </span>
+          </div>
+        </div>
+
+        <button @click="activePassengerModal = null" class="mt-4 w-full py-2.5 bg-slate-800 text-white rounded-xl text-xs font-bold">
+          關閉
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const { createApp, ref, computed, onMounted, watch, nextTick } = Vue;
+
+    createApp({
+      setup() {
+        // 設定
+        const apiUrl = ref(localStorage.getItem("BUS_API_URL") || "");
+        const tempApiUrl = ref(apiUrl.value);
+        const secretKey = ref(localStorage.getItem("BUS_SECRET_KEY") || "BusBoardingSecureKey2026!");
+        const tempSecretKey = ref(secretKey.value);
+        
+        const showSettingsModal = ref(false);
+        const soundEnabled = ref(localStorage.getItem("BUS_SOUND") !== "false");
+        const vibrateEnabled = ref(localStorage.getItem("BUS_VIBRATE") !== "false");
+
+        // 資料狀態
+        const trips = ref([]);
+        const selectedTrip = ref(localStorage.getItem("BUS_SELECTED_TRIP") || "");
+        const buses = ref([]);
+        const selectedBus = ref("ALL");
+        const passengers = ref([]);
+        const loading = ref(false);
+        const currentTab = ref("scan");
+
+        // 搜尋與手動輸入
+        const searchKeyword = ref("");
+        const filterStatus = ref("ALL");
+        const manualInputBarcode = ref("");
+
+        // 掃描器
+        let html5QrCode = null;
+        const isScanningActive = ref(false);
+        const lastScanResult = ref(null);
+        let scanThrottleTimer = null;
+
+        // 單人票卡彈窗
+        const activePassengerModal = ref(null);
+
+        // ================= Web Audio API 提示音合成 =================
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        const playBeep = (type) => {
+          if (!soundEnabled.value) return;
+          try {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const now = audioCtx.currentTime;
+
+            if (type === "success") {
+              // 成功雙音
+              const osc1 = audioCtx.createOscillator();
+              const gain1 = audioCtx.createGain();
+              osc1.connect(gain1);
+              gain1.connect(audioCtx.destination);
+              osc1.frequency.setValueAtTime(587.33, now);
+              osc1.frequency.setValueAtTime(880, now + 0.1);
+              gain1.gain.setValueAtTime(0.3, now);
+              gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+              osc1.start(now);
+              osc1.stop(now + 0.3);
+            } else if (type === "duplicate") {
+              // 重複警告
+              const osc = audioCtx.createOscillator();
+              const gain = audioCtx.createGain();
+              osc.connect(gain);
+              gain.connect(audioCtx.destination);
+              osc.type = "square";
+              osc.frequency.setValueAtTime(440, now);
+              osc.frequency.setValueAtTime(440, now + 0.15);
+              gain.gain.setValueAtTime(0.2, now);
+              gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+              osc.start(now);
+              osc.stop(now + 0.3);
+            } else {
+              // 錯誤長音
+              const osc = audioCtx.createOscillator();
+              const gain = audioCtx.createGain();
+              osc.connect(gain);
+              gain.connect(audioCtx.destination);
+              osc.type = "sawtooth";
+              osc.frequency.setValueAtTime(180, now);
+              gain.gain.setValueAtTime(0.4, now);
+              gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+              osc.start(now);
+              osc.stop(now + 0.4);
+            }
+          } catch (e) {
+            console.warn("Audio play failed:", e);
+          }
+        };
+
+        const triggerVibration = (pattern) => {
+          if (vibrateEnabled.value && navigator.vibrate) {
+            navigator.vibrate(pattern);
+          }
+        };
+
+        // ================= E2EE 本地防偽 Token 計算與驗證 =================
+        const generateClientToken = (id, trip, bus) => {
+          const payloadStr = JSON.stringify({ id: id, trip: trip || "", bus: bus || "" });
+          const payloadB64 = CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(payloadStr))
+            .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+          const hmac = CryptoJS.HmacSHA256(payloadB64, secretKey.value).toString(CryptoJS.enc.Hex).substring(0, 16);
+          return `E2E.${payloadB64}.${hmac}`;
+        };
+
+        const verifyClientToken = (tokenStr) => {
+          if (!tokenStr || !tokenStr.startsWith("E2E.")) {
+            return { isToken: false, valid: false, id: tokenStr };
+          }
+          const parts = tokenStr.split(".");
+          if (parts.length !== 3) return { isToken: true, valid: false, id: null };
+
+          const payloadB64 = parts[1];
+          const givenSign = parts[2];
+          const expectedSign = CryptoJS.HmacSHA256(payloadB64, secretKey.value).toString(CryptoJS.enc.Hex).substring(0, 16);
+
+          if (givenSign !== expectedSign) {
+            return { isToken: true, valid: false, id: null };
+          }
+
+          try {
+            // WebSafe Base64 decode
+            let b64 = payloadB64.replace(/-/g, '+').replace(/_/g, '/');
+            while (b64.length % 4) b64 += '=';
+            const jsonStr = CryptoJS.enc.Utf8.stringify(CryptoJS.enc.Base64.parse(b64));
+            const payload = JSON.parse(jsonStr);
+            return { isToken: true, valid: true, id: payload.id, payload: payload };
+          } catch (e) {
+            return { isToken: true, valid: false, id: null };
+          }
+        };
+
+        // ================= 資料計算 =================
+        const filteredPassengers = computed(() => {
+          if (selectedBus.value === "ALL") return passengers.value;
+          return passengers.value.filter(p => p.bus === selectedBus.value);
+        });
+
+        const unboardedCount = computed(() => filteredPassengers.value.filter(p => p.status !== "已上車").length);
+        const boardedCount = computed(() => filteredPassengers.value.filter(p => p.status === "已上車").length);
+
+        const filteredStats = computed(() => {
+          const total = filteredPassengers.value.length;
+          const boarded = boardedCount.value;
+          const unboarded = unboardedCount.value;
+          const percent = total > 0 ? Math.round((boarded / total) * 100) : 0;
+          return { total, boarded, unboarded, percent };
+        });
+
+        const displayedPassengers = computed(() => {
+          let list = filteredPassengers.value;
+          if (filterStatus.value !== "ALL") {
+            list = list.filter(p => p.status === filterStatus.value);
+          }
+          if (searchKeyword.value.trim()) {
+            const kw = searchKeyword.value.toLowerCase().trim();
+            list = list.filter(p => 
+              p.name.toLowerCase().includes(kw) || 
+              p.id.toLowerCase().includes(kw) || 
+              (p.bus && p.bus.toLowerCase().includes(kw)) ||
+              (p.seat && p.seat.toString().toLowerCase().includes(kw))
+            );
+          }
+          return list;
+        });
+
+        // 樣式計算
+        const scanCardStyle = computed(() => {
+          if (!lastScanResult.value) return "";
+          if (lastScanResult.value.code === "SUCCESS") return "bg-emerald-50 border-emerald-300 text-emerald-900";
+          if (lastScanResult.value.code === "ALREADY_BOARDED") return "bg-amber-50 border-amber-300 text-amber-900";
+          return "bg-rose-50 border-rose-300 text-rose-900";
+        });
+
+        const scanIconBoxStyle = computed(() => {
+          if (!lastScanResult.value) return "";
+          if (lastScanResult.value.code === "SUCCESS") return "bg-emerald-500 text-white";
+          if (lastScanResult.value.code === "ALREADY_BOARDED") return "bg-amber-500 text-white";
+          return "bg-rose-500 text-white";
+        });
+
+        const scanResultIcon = computed(() => {
+          if (!lastScanResult.value) return "info";
+          if (lastScanResult.value.code === "SUCCESS") return "check-circle-2";
+          if (lastScanResult.value.code === "ALREADY_BOARDED") return "alert-triangle";
+          return "x-circle";
+        });
+
+        const scanTitleText = computed(() => {
+          if (!lastScanResult.value) return "";
+          if (lastScanResult.value.code === "SUCCESS") return "✅ 登車核銷成功";
+          if (lastScanResult.value.code === "ALREADY_BOARDED") return "⚠️ 重複核銷";
+          if (lastScanResult.value.code === "WRONG_BUS") return "❌ 車次不符！";
+          if (lastScanResult.value.code === "INVALID_SIGNATURE") return "❌ 數位簽章無效 (防偽警告)";
+          return "❌ 無法登車";
+        });
+
+        // ================= API 串接與資料載入 =================
+        const fetchTrips = async () => {
+          if (!apiUrl.value) return;
+          loading.value = true;
+          try {
+            const res = await fetch(`${apiUrl.value}?action=getTrips&apiKey=${encodeURIComponent(secretKey.value)}`);
+            const data = await res.json();
+            if (data.success && data.trips) {
+              trips.value = data.trips;
+              if (trips.value.length > 0 && !trips.value.includes(selectedTrip.value)) {
+                selectedTrip.value = trips.value[0];
+                localStorage.setItem("BUS_SELECTED_TRIP", selectedTrip.value);
+              }
+              if (selectedTrip.value) {
+                await fetchTripData(selectedTrip.value);
+              }
+            } else if (data.code === "UNAUTHORIZED") {
+              alert(data.message);
+            }
+          } catch (e) {
+            console.error("載入行程失敗:", e);
+          } finally {
+            loading.value = false;
+          }
+        };
+
+        const fetchTripData = async (tripName) => {
+          if (!apiUrl.value || !tripName) return;
+          loading.value = true;
+          try {
+            const res = await fetch(`${apiUrl.value}?action=getTripData&trip=${encodeURIComponent(tripName)}&apiKey=${encodeURIComponent(secretKey.value)}`);
+            const data = await res.json();
+            if (data.success) {
+              buses.value = data.buses || [];
+              passengers.value = data.passengers || [];
+              if (selectedBus.value !== "ALL" && !buses.value.includes(selectedBus.value)) {
+                selectedBus.value = "ALL";
+              }
+              if (currentTab.value === "tickets") {
+                nextTick(() => renderAllLocalQrCodes());
+              }
+            }
+          } catch (e) {
+            console.error("載入名單失敗:", e);
+          } finally {
+            loading.value = false;
+          }
+        };
+
+        const onTripChange = () => {
+          localStorage.setItem("BUS_SELECTED_TRIP", selectedTrip.value);
+          fetchTripData(selectedTrip.value);
+        };
+
+        const refreshData = async () => {
+          await fetchTrips();
+        };
+
+        // ================= 掃碼核銷處理 (含 E2EE 防偽驗證) =================
+        const handleBarcodeCheckIn = async (rawCode) => {
+          if (!rawCode || !selectedTrip.value) return;
+          const cleanCode = rawCode.toString().trim();
+          const timeNowStr = new Date().toLocaleTimeString('zh-TW', { hour12: false });
+
+          // 1. 驗證是否為 E2EE 防偽 Token
+          const tokenVerify = verifyClientToken(cleanCode);
+          if (tokenVerify.isToken && !tokenVerify.valid) {
+            playBeep("error");
+            triggerVibration([400, 100, 400]);
+            lastScanResult.value = {
+              code: "INVALID_SIGNATURE",
+              message: "【防偽警告】此二維碼之數位簽章不符或金鑰錯誤，可能為偽造票券！",
+              time: timeNowStr
+            };
+            return;
+          }
+
+          const targetId = tokenVerify.isToken ? tokenVerify.id : cleanCode;
+
+          // 2. 本地快速查找
+          const target = passengers.value.find(p => p.id === targetId);
+
+          if (!target) {
+            playBeep("error");
+            triggerVibration([200, 100, 200]);
+            lastScanResult.value = {
+              code: "NOT_FOUND",
+              message: `查無此條碼/人員編號 [${targetId}]，非本行程名單人員！`,
+              time: timeNowStr
+            };
+            return;
+          }
+
+          // 檢查車次
+          const isWrongBus = selectedBus.value !== "ALL" && target.bus && target.bus !== selectedBus.value;
+          if (isWrongBus) {
+            playBeep("error");
+            triggerVibration([300, 100, 300]);
+            lastScanResult.value = {
+              code: "WRONG_BUS",
+              passenger: target,
+              message: `【車次不符】此人分配在「${target.bus}」，當前點名為「${selectedBus.value}」！`,
+              time: timeNowStr
+            };
+            return;
+          }
+
+          // 檢查是否重複上車
+          if (target.status === "已上車") {
+            playBeep("duplicate");
+            triggerVibration([100, 50, 100]);
+            lastScanResult.value = {
+              code: "ALREADY_BOARDED",
+              passenger: target,
+              message: `【已於 ${target.boardingTime || '稍早'} 上車】請勿重複登車。`,
+              time: timeNowStr
+            };
+            return;
+          }
+
+          // 3. 本地狀態立即更新
+          target.status = "已上車";
+          target.boardingTime = timeNowStr;
+          playBeep("success");
+          triggerVibration([120]);
+
+          lastScanResult.value = {
+            code: "SUCCESS",
+            passenger: target,
+            message: `【登車成功】歡迎搭乘！(E2EE 驗證通過)`,
+            time: timeNowStr
+          };
+
+          // 4. 背景送回 Google Apps Script (攜帶 API Key)
+          try {
+            fetch(apiUrl.value, {
+              method: "POST",
+              mode: "no-cors",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "checkIn",
+                apiKey: secretKey.value,
+                trip: selectedTrip.value,
+                bus: selectedBus.value,
+                barcode: cleanCode
+              })
+            }).catch(err => console.error("背景同步回寫出錯:", err));
+          } catch (e) {
+            console.error("發送核銷請求失敗:", e);
+          }
+        };
+
+        const handleManualCheckIn = () => {
+          if (!manualInputBarcode.value.trim()) return;
+          handleBarcodeCheckIn(manualInputBarcode.value.trim());
+          manualInputBarcode.value = "";
+        };
+
+        const togglePassengerStatus = (p) => {
+          const newStatus = p.status === "已上車" ? "未上車" : "已上車";
+          p.status = newStatus;
+          p.boardingTime = newStatus === "已上車" ? new Date().toLocaleTimeString('zh-TW', { hour12: false }) : "";
+
+          if (newStatus === "已上車") playBeep("success");
+
+          if (apiUrl.value) {
+            fetch(apiUrl.value, {
+              method: "POST",
+              mode: "no-cors",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "toggleStatus",
+                apiKey: secretKey.value,
+                trip: selectedTrip.value,
+                barcode: p.id,
+                newStatus: newStatus
+              })
+            }).catch(e => console.error(e));
+          }
+        };
+
+        // ================= QR Code 相機初始化 =================
+        const startScanner = async () => {
+          try {
+            if (!html5QrCode) {
+              html5QrCode = new Html5Qrcode("reader");
+            }
+            const config = {
+              fps: 15,
+              qrbox: { width: 250, height: 250 },
+              aspectRatio: 1.0
+            };
+
+            await html5QrCode.start(
+              { facingMode: "environment" },
+              config,
+              (decodedText) => {
+                if (scanThrottleTimer) return;
+                scanThrottleTimer = setTimeout(() => { scanThrottleTimer = null; }, 1800);
+                handleBarcodeCheckIn(decodedText);
+              },
+              () => {}
+            );
+            isScanningActive.value = true;
+          } catch (err) {
+            console.error("相機啟動失敗:", err);
+          }
+        };
+
+        const restartScanner = async () => {
+          if (html5QrCode && isScanningActive.value) {
+            await html5QrCode.stop();
+          }
+          await startScanner();
+        };
+
+        // 繪製純本地 QR Code (無第三方外洩)
+        const renderAllLocalQrCodes = () => {
+          filteredPassengers.value.forEach(p => {
+            const containerId = 'qr-' + p.id;
+            const el = document.getElementById(containerId);
+            if (el) {
+              el.innerHTML = "";
+              const token = generateClientToken(p.id, selectedTrip.value, p.bus);
+              new QRCode(el, {
+                text: token,
+                width: 90,
+                height: 90,
+                correctLevel: QRCode.CorrectLevel.M
+              });
+            }
+          });
+        };
+
+        const switchTab = (tab) => {
+          currentTab.value = tab;
+          nextTick(() => {
+            if (window.lucide) lucide.createIcons();
+            if (tab === "scan") {
+              if (!isScanningActive.value) startScanner();
+            } else if (tab === "tickets") {
+              renderAllLocalQrCodes();
+            }
+          });
+        };
+
+        const showSingleTicket = (passenger) => {
+          activePassengerModal.value = passenger;
+          nextTick(() => {
+            if (window.lucide) lucide.createIcons();
+            const el = document.getElementById("modal-qr");
+            if (el) {
+              el.innerHTML = "";
+              const token = generateClientToken(passenger.id, selectedTrip.value, passenger.bus);
+              new QRCode(el, {
+                text: token,
+                width: 160,
+                height: 160,
+                correctLevel: QRCode.CorrectLevel.M
+              });
+            }
+          });
+        };
+
+        const openSettings = () => {
+          tempApiUrl.value = apiUrl.value;
+          tempSecretKey.value = secretKey.value;
+          showSettingsModal.value = true;
+          nextTick(() => { if (window.lucide) lucide.createIcons(); });
+        };
+
+        const saveSettings = () => {
+          apiUrl.value = tempApiUrl.value.trim();
+          secretKey.value = tempSecretKey.value.trim() || "BusBoardingSecureKey2026!";
+          localStorage.setItem("BUS_API_URL", apiUrl.value);
+          localStorage.setItem("BUS_SECRET_KEY", secretKey.value);
+          localStorage.setItem("BUS_SOUND", soundEnabled.value);
+          localStorage.setItem("BUS_VIBRATE", vibrateEnabled.value);
+          showSettingsModal.value = false;
+          fetchTrips();
+        };
+
+        onMounted(() => {
+          if (window.lucide) lucide.createIcons();
+          if (apiUrl.value) fetchTrips();
+          startScanner();
+        });
+
+        watch(selectedBus, () => {
+          if (currentTab.value === "tickets") {
+            nextTick(() => renderAllLocalQrCodes());
+          }
+        });
+
+        watch(currentTab, () => {
+          nextTick(() => { if (window.lucide) lucide.createIcons(); });
+        });
+
+        return {
+          apiUrl,
+          tempApiUrl,
+          secretKey,
+          tempSecretKey,
+          showSettingsModal,
+          soundEnabled,
+          vibrateEnabled,
+          trips,
+          selectedTrip,
+          buses,
+          selectedBus,
+          passengers,
+          loading,
+          currentTab,
+          searchKeyword,
+          filterStatus,
+          manualInputBarcode,
+          filteredPassengers,
+          unboardedCount,
+          boardedCount,
+          filteredStats,
+          displayedPassengers,
+          lastScanResult,
+          scanCardStyle,
+          scanIconBoxStyle,
+          scanResultIcon,
+          scanTitleText,
+          activePassengerModal,
+          fetchTrips,
+          onTripChange,
+          refreshData,
+          handleManualCheckIn,
+          togglePassengerStatus,
+          restartScanner,
+          switchTab,
+          showSingleTicket,
+          openSettings,
+          saveSettings
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>

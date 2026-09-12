@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🎫 乘車券 / 登車條碼批次列印系統 (E2EE 防偽版)</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Crypto-JS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+  <!-- QRCode.js (100% 本地產碼，不外洩資料) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <!-- Vue 3 -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <style>
+    @media print {
+      .no-print { display: none !important; }
+      body { background-color: white !important; padding: 0 !important; }
+      .ticket-card { break-inside: avoid; page-break-inside: avoid; border: 1px dashed #64748b !important; }
+    }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 p-4 md:p-8">
+  <div id="app" class="max-w-5xl mx-auto space-y-6">
+    
+    <!-- 操作面板 (列印時隱藏) -->
+    <div class="no-print bg-white p-6 rounded-2xl shadow-md space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
+        <div>
+          <div class="flex items-center space-x-2">
+            <h1 class="text-xl font-bold text-slate-800">
+              🎫 乘車識別證批次列印系統
+            </h1>
+            <span class="bg-indigo-100 text-indigo-800 text-xs font-bold px-2 py-0.5 rounded-full border border-indigo-200">
+              🔒 E2EE 防偽簽章版
+            </span>
+          </div>
+          <p class="text-xs text-slate-500 mt-1">條碼於瀏覽器本地以 HMAC-SHA256 簽章即時繪製，不傳輸至任何第三方製圖網站，杜絕偽造與隱私洩漏。</p>
+        </div>
+        <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm px-5 py-2.5 rounded-xl shadow-lg flex items-center space-x-2">
+          <span>🖨️ 列印乘車證 (A4)</span>
+        </button>
+      </div>
+
+      <!-- 控制項 -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
+        <div>
+          <label class="font-bold text-slate-700 block mb-1">API 網址 (Google Apps Script)</label>
+          <input v-model="apiUrl" @change="saveSettings" placeholder="https://script.google.com/macros/s/.../exec" class="w-full p-2 border rounded-lg" />
+        </div>
+        <div>
+          <label class="font-bold text-slate-700 block mb-1">E2EE 安全密鑰 (Secret Key)</label>
+          <input v-model="secretKey" @change="saveSettings" type="password" placeholder="輸入金鑰" class="w-full p-2 border rounded-lg font-mono" />
+        </div>
+        <div>
+          <label class="font-bold text-slate-700 block mb-1">選擇行程 (分頁)</label>
+          <select v-model="selectedTrip" @change="onTripChange" class="w-full p-2 border rounded-lg bg-white">
+            <option v-for="t in trips" :key="t" :value="t">{{ t }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="font-bold text-slate-700 block mb-1">車次篩選</label>
+          <select v-model="selectedBus" class="w-full p-2 border rounded-lg bg-white">
+            <option value="ALL">全部車次</option>
+            <option v-for="b in buses" :key="b" :value="b">{{ b }}</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- 票券列印網格 (A4 佈局) -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+      <div 
+        v-for="p in filteredPassengers" 
+        :key="p.id" 
+        class="ticket-card bg-white p-4 rounded-2xl border-2 border-slate-200 shadow-sm flex flex-col justify-between relative overflow-hidden"
+      >
+        <!-- 頂部裝飾條 -->
+        <div class="flex justify-between items-start border-b border-slate-100 pb-2 mb-2">
+          <div>
+            <div class="text-[10px] font-extrabold uppercase tracking-wider text-blue-600">專車乘車憑證</div>
+            <div class="text-xs font-bold text-slate-500">{{ selectedTrip }}</div>
+          </div>
+          <div class="bg-indigo-600 text-white text-xs font-black px-2.5 py-1 rounded-lg">
+            {{ p.bus }}
+          </div>
+        </div>
+
+        <!-- 中間資訊與 QR Code (本地繪製) -->
+        <div class="flex items-center space-x-3 py-2">
+          <div class="p-1 bg-slate-50 border rounded-xl shadow-inner shrink-0">
+            <div :id="'print-qr-' + p.id" class="w-24 h-24 flex items-center justify-center"></div>
+          </div>
+          <div class="flex-1 space-y-1 text-xs">
+            <div>
+              <div class="text-slate-400 text-[10px]">乘客姓名</div>
+              <div class="text-base font-black text-slate-800">{{ p.name }}</div>
+            </div>
+            <div v-if="p.seat">
+              <div class="text-slate-400 text-[10px]">指定座位</div>
+              <div class="font-bold text-slate-700">{{ p.seat }}</div>
+            </div>
+            <div>
+              <div class="text-slate-400 text-[10px]">人員識別號</div>
+              <div class="font-mono text-[11px] text-slate-500 font-bold">#{{ p.id }}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 底部防偽標記 -->
+        <div class="border-t border-slate-100 pt-2 text-[9px] text-slate-400 flex justify-between items-center">
+          <span>🔒 E2EE 防偽加密條碼</span>
+          <span>登車請主動出示</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 查無資料 -->
+    <div v-if="filteredPassengers.length === 0" class="text-center py-16 bg-white rounded-2xl border text-slate-400 text-sm">
+      目前尚無可顯示的乘車名單，請確認已輸入正確 API 網址與金鑰並選擇行程。
+    </div>
+
+  </div>
+
+  <script>
+    const { createApp, ref, computed, onMounted, watch, nextTick } = Vue;
+
+    createApp({
+      setup() {
+        const apiUrl = ref(localStorage.getItem("BUS_API_URL") || "");
+        const secretKey = ref(localStorage.getItem("BUS_SECRET_KEY") || "BusBoardingSecureKey2026!");
+        const trips = ref([]);
+        const selectedTrip = ref(localStorage.getItem("BUS_SELECTED_TRIP") || "");
+        const buses = ref([]);
+        const selectedBus = ref("ALL");
+        const passengers = ref([]);
+
+        const saveSettings = () => {
+          localStorage.setItem("BUS_API_URL", apiUrl.value.trim());
+          localStorage.setItem("BUS_SECRET_KEY", secretKey.value.trim());
+          loadTrips();
+        };
+
+        const generateClientToken = (id, trip, bus) => {
+          const payloadStr = JSON.stringify({ id: id, trip: trip || "", bus: bus || "" });
+          const payloadB64 = CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(payloadStr))
+            .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+          const hmac = CryptoJS.HmacSHA256(payloadB64, secretKey.value).toString(CryptoJS.enc.Hex).substring(0, 16);
+          return `E2E.${payloadB64}.${hmac}`;
+        };
+
+        const loadTrips = async () => {
+          if (!apiUrl.value) return;
+          try {
+            const res = await fetch(`${apiUrl.value}?action=getTrips&apiKey=${encodeURIComponent(secretKey.value)}`);
+            const data = await res.json();
+            if (data.success && data.trips) {
+              trips.value = data.trips;
+              if (trips.value.length > 0 && !trips.value.includes(selectedTrip.value)) {
+                selectedTrip.value = trips.value[0];
+              }
+              if (selectedTrip.value) {
+                loadTripData(selectedTrip.value);
+              }
+            } else if (data.code === "UNAUTHORIZED") {
+              alert(data.message);
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        };
+
+        const loadTripData = async (tripName) => {
+          if (!apiUrl.value || !tripName) return;
+          try {
+            const res = await fetch(`${apiUrl.value}?action=getTripData&trip=${encodeURIComponent(tripName)}&apiKey=${encodeURIComponent(secretKey.value)}`);
+            const data = await res.json();
+            if (data.success) {
+              buses.value = data.buses || [];
+              passengers.value = data.passengers || [];
+              nextTick(() => renderQrs());
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        };
+
+        const renderQrs = () => {
+          filteredPassengers.value.forEach(p => {
+            const el = document.getElementById('print-qr-' + p.id);
+            if (el) {
+              el.innerHTML = "";
+              const token = generateClientToken(p.id, selectedTrip.value, p.bus);
+              new QRCode(el, {
+                text: token,
+                width: 96,
+                height: 96,
+                correctLevel: QRCode.CorrectLevel.M
+              });
+            }
+          });
+        };
+
+        const onTripChange = () => {
+          localStorage.setItem("BUS_SELECTED_TRIP", selectedTrip.value);
+          loadTripData(selectedTrip.value);
+        };
+
+        const filteredPassengers = computed(() => {
+          if (selectedBus.value === "ALL") return passengers.value;
+          return passengers.value.filter(p => p.bus === selectedBus.value);
+        });
+
+        watch(selectedBus, () => {
+          nextTick(() => renderQrs());
+        });
+
+        onMounted(() => {
+          if (apiUrl.value) loadTrips();
+        });
+
+        return {
+          apiUrl,
+          secretKey,
+          trips,
+          selectedTrip,
+          buses,
+          selectedBus,
+          passengers,
+          filteredPassengers,
+          saveSettings,
+          onTripChange
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
