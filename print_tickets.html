@@ -13,10 +13,48 @@
   <!-- Vue 3 -->
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
   <style>
+    /* 2cm x 2cm QR Code 物理標準尺寸 (20mm x 20mm) */
+    .qr-2cm {
+      width: 20mm !important;
+      height: 20mm !important;
+      min-width: 20mm !important;
+      min-height: 20mm !important;
+    }
+    .qr-2cm canvas, .qr-2cm img {
+      width: 20mm !important;
+      height: 20mm !important;
+      display: block;
+    }
+
     @media print {
-      .no-print { display: none !important; }
-      body { background-color: white !important; padding: 0 !important; }
-      .ticket-card { break-inside: avoid; page-break-inside: avoid; border: 1px dashed #64748b !important; }
+      @page {
+        size: A4 portrait;
+        margin: 10mm 12mm;
+      }
+      body {
+        background-color: white !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .badge-grid {
+        display: grid !important;
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 6mm !important;
+      }
+      .badge-card {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+        border: 1.5px dashed #94a3b8 !important;
+        box-shadow: none !important;
+        background: white !important;
+        padding: 10px 14px !important;
+        border-radius: 8px !important;
+      }
     }
   </style>
 </head>
@@ -24,93 +62,99 @@
   <div id="app" class="max-w-5xl mx-auto space-y-6">
     
     <!-- 操作面板 (列印時隱藏) -->
-    <div class="no-print bg-white p-6 rounded-2xl shadow-md space-y-4">
+    <div class="no-print bg-white p-6 rounded-2xl shadow-md border border-slate-200 space-y-4">
       <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
         <div>
           <div class="flex items-center space-x-2">
             <h1 class="text-xl font-bold text-slate-800">
               🎫 乘車識別證批次列印系統
             </h1>
-            <span class="bg-indigo-100 text-indigo-800 text-xs font-bold px-2 py-0.5 rounded-full border border-indigo-200">
-              🔒 E2EE 防偽簽章版
+            <span class="bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-0.5 rounded-full border border-emerald-200">
+              全行程通用版・一人一張
+            </span>
+            <span class="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-0.5 rounded-full border border-blue-200">
+              QR Code: 2cm × 2cm
             </span>
           </div>
-          <p class="text-xs text-slate-500 mt-1">條碼於瀏覽器本地以 HMAC-SHA256 簽章即時繪製，不傳輸至任何第三方製圖網站，杜絕偽造與隱私洩漏。</p>
+          <p class="text-xs text-slate-500 mt-1">
+            此頁面生成的識別證為<strong>「全行程通用」</strong>，乘客全程配戴同一張識別證，去程、景點、用餐、回程皆可直接掃碼核銷！A4 一頁排 10 張，含虛線裁切指引。
+          </p>
         </div>
-        <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm px-5 py-2.5 rounded-xl shadow-lg flex items-center space-x-2">
-          <span>🖨️ 列印乘車證 (A4)</span>
+
+        <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-sm px-6 py-3 rounded-xl shadow-lg flex items-center space-x-2 transition">
+          <span>🖨️ 一鍵列印識別證 (A4)</span>
         </button>
       </div>
 
       <!-- 控制項 -->
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
         <div>
           <label class="font-bold text-slate-700 block mb-1">API 網址 (Google Apps Script)</label>
-          <input v-model="apiUrl" @change="saveSettings" placeholder="https://script.google.com/macros/s/.../exec" class="w-full p-2 border rounded-lg" />
+          <input v-model="apiUrl" @change="saveSettings" placeholder="https://script.google.com/macros/s/.../exec" class="w-full p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs" />
         </div>
         <div>
           <label class="font-bold text-slate-700 block mb-1">E2EE 安全密鑰 (Secret Key)</label>
-          <input v-model="secretKey" @change="saveSettings" type="password" placeholder="輸入金鑰" class="w-full p-2 border rounded-lg font-mono" />
+          <input v-model="secretKey" @change="saveSettings" type="password" placeholder="輸入金鑰" class="w-full p-2 border rounded-lg font-mono text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
         </div>
         <div>
-          <label class="font-bold text-slate-700 block mb-1">選擇行程 (分頁)</label>
-          <select v-model="selectedTrip" @change="onTripChange" class="w-full p-2 border rounded-lg bg-white">
+          <label class="font-bold text-slate-700 block mb-1">行程名單分頁</label>
+          <select v-model="selectedTrip" @change="onTripChange" class="w-full p-2 border rounded-lg bg-white text-xs cursor-pointer">
             <option v-for="t in trips" :key="t" :value="t">{{ t }}</option>
           </select>
         </div>
         <div>
           <label class="font-bold text-slate-700 block mb-1">車次篩選</label>
-          <select v-model="selectedBus" class="w-full p-2 border rounded-lg bg-white">
-            <option value="ALL">全部車次</option>
+          <select v-model="selectedBus" class="w-full p-2 border rounded-lg bg-white text-xs cursor-pointer">
+            <option value="ALL">全部車次 (印出所有人)</option>
             <option v-for="b in buses" :key="b" :value="b">{{ b }}</option>
           </select>
         </div>
       </div>
+
+      <!-- 識別證自訂標題 -->
+      <div class="pt-2 flex items-center space-x-3 text-xs border-t border-slate-100">
+        <span class="font-bold text-slate-600">識別證頂部標題：</span>
+        <input v-model="badgeTitle" class="flex-1 p-1.5 border rounded-lg text-xs" placeholder="例如：🚌 專車乘車識別證" />
+        <span class="text-slate-400 text-[11px]">共 {{ filteredPassengers.length }} 位人員</span>
+      </div>
     </div>
 
-    <!-- 票券列印網格 (A4 佈局) -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+    <!-- 票券列印網格 (A4 兩欄排版，每張卡片含 2cm x 2cm QR Code 與大字姓名) -->
+    <div class="badge-grid grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div 
         v-for="p in filteredPassengers" 
         :key="p.id" 
-        class="ticket-card bg-white p-4 rounded-2xl border-2 border-slate-200 shadow-sm flex flex-col justify-between relative overflow-hidden"
+        class="badge-card bg-white p-3.5 rounded-2xl border border-dashed border-slate-300 shadow-sm flex items-center justify-between space-x-3 relative overflow-hidden"
       >
-        <!-- 頂部裝飾條 -->
-        <div class="flex justify-between items-start border-b border-slate-100 pb-2 mb-2">
-          <div>
-            <div class="text-[10px] font-extrabold uppercase tracking-wider text-blue-600">專車乘車憑證</div>
-            <div class="text-xs font-bold text-slate-500">{{ selectedTrip }}</div>
+        <!-- 左側：精確 2cm x 2cm QR Code (20mm x 20mm) -->
+        <div class="flex flex-col items-center justify-center shrink-0">
+          <div class="bg-slate-50 border border-slate-200 rounded-lg p-0.5 shadow-inner flex items-center justify-center">
+            <div :id="'print-qr-' + p.id" class="qr-2cm"></div>
           </div>
-          <div class="bg-indigo-600 text-white text-xs font-black px-2.5 py-1 rounded-lg">
-            {{ p.bus }}
-          </div>
+          <span class="text-[9px] font-mono text-slate-400 mt-1 font-semibold">2cm × 2cm</span>
         </div>
 
-        <!-- 中間資訊與 QR Code (本地繪製) -->
-        <div class="flex items-center space-x-3 py-2">
-          <div class="p-1 bg-slate-50 border rounded-xl shadow-inner shrink-0">
-            <div :id="'print-qr-' + p.id" class="w-24 h-24 flex items-center justify-center"></div>
+        <!-- 右側：大字姓名與乘車資訊 -->
+        <div class="flex-1 min-w-0 flex flex-col justify-center space-y-1 text-left pl-1">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] font-black uppercase tracking-wider bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded">
+              {{ p.bus || '專車' }}
+            </span>
+            <span v-if="p.seat" class="text-[11px] font-bold text-slate-600">
+              座位: {{ p.seat }}
+            </span>
           </div>
-          <div class="flex-1 space-y-1 text-xs">
-            <div>
-              <div class="text-slate-400 text-[10px]">乘客姓名</div>
-              <div class="text-base font-black text-slate-800">{{ p.name }}</div>
-            </div>
-            <div v-if="p.seat">
-              <div class="text-slate-400 text-[10px]">指定座位</div>
-              <div class="font-bold text-slate-700">{{ p.seat }}</div>
-            </div>
-            <div>
-              <div class="text-slate-400 text-[10px]">人員識別號</div>
-              <div class="font-mono text-[11px] text-slate-500 font-bold">#{{ p.id }}</div>
-            </div>
-          </div>
-        </div>
 
-        <!-- 底部防偽標記 -->
-        <div class="border-t border-slate-100 pt-2 text-[9px] text-slate-400 flex justify-between items-center">
-          <span>🔒 E2EE 防偽加密條碼</span>
-          <span>登車請主動出示</span>
+          <!-- 乘客大字姓名 (超大粗體，胸牌一眼辨識) -->
+          <div class="text-2xl font-black text-slate-900 tracking-wide truncate py-0.5">
+            {{ p.name }}
+          </div>
+
+          <!-- 編號與通用識別標籤 -->
+          <div class="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-100">
+            <span class="font-mono font-bold text-slate-700">#{{ p.id }}</span>
+            <span class="text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.2 rounded">全行程通用識別證</span>
+          </div>
         </div>
       </div>
     </div>
@@ -134,6 +178,7 @@
         const buses = ref([]);
         const selectedBus = ref("ALL");
         const passengers = ref([]);
+        const badgeTitle = ref("🚌 專車乘車識別證");
 
         const saveSettings = () => {
           localStorage.setItem("BUS_API_URL", apiUrl.value.trim());
@@ -141,8 +186,10 @@
           loadTrips();
         };
 
-        const generateClientToken = (id, trip, bus) => {
-          const payloadStr = JSON.stringify({ id: id, trip: trip || "", bus: bus || "" });
+        // 通用識別證 Token (不綁定特定 trip 或 bus，實現從頭用到尾)
+        const generateClientToken = (id) => {
+          const payloadObj = { id: id.toString().trim() };
+          const payloadStr = JSON.stringify(payloadObj);
           const payloadB64 = CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(payloadStr))
             .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
           const hmac = CryptoJS.HmacSHA256(payloadB64, secretKey.value).toString(CryptoJS.enc.Hex).substring(0, 16);
@@ -166,7 +213,7 @@
               alert(data.message);
             }
           } catch (e) {
-            console.error(e);
+            console.error("載入行程失敗:", e);
           }
         };
 
@@ -181,20 +228,21 @@
               nextTick(() => renderQrs());
             }
           } catch (e) {
-            console.error(e);
+            console.error("載入資料失敗:", e);
           }
         };
 
+        // 渲染 2cm x 2cm QR Code (以 160x160 畫布 supersampling 確保列印極度清晰)
         const renderQrs = () => {
           filteredPassengers.value.forEach(p => {
             const el = document.getElementById('print-qr-' + p.id);
             if (el) {
               el.innerHTML = "";
-              const token = generateClientToken(p.id, selectedTrip.value, p.bus);
+              const token = generateClientToken(p.id);
               new QRCode(el, {
                 text: token,
-                width: 96,
-                height: 96,
+                width: 160,
+                height: 160,
                 correctLevel: QRCode.CorrectLevel.M
               });
             }
@@ -227,6 +275,7 @@
           buses,
           selectedBus,
           passengers,
+          badgeTitle,
           filteredPassengers,
           saveSettings,
           onTripChange
