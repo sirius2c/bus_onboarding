@@ -41,6 +41,64 @@
       background-color: #cbd5e1;
       border-radius: 4px;
     }
+
+    /* 2cm x 2cm QR Code 物理尺寸 (20mm x 20mm) */
+    .qr-2cm {
+      width: 20mm !important;
+      height: 20mm !important;
+      min-width: 20mm !important;
+      min-height: 20mm !important;
+    }
+    .qr-2cm canvas, .qr-2cm img {
+      width: 20mm !important;
+      height: 20mm !important;
+      display: block;
+    }
+
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 10mm;
+      }
+      body {
+        background: white !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      #app {
+        max-width: 100% !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+      header, footer, .no-print {
+        display: none !important;
+      }
+      main {
+        padding: 0 !important;
+        margin: 0 !important;
+        display: block !important;
+      }
+      .print-grid {
+        display: grid !important;
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 6mm !important;
+        max-height: none !important;
+        overflow: visible !important;
+        padding: 0 !important;
+      }
+      .badge-card {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+        border: 1.5px dashed #64748b !important;
+        box-shadow: none !important;
+        background: white !important;
+        padding: 8px 12px !important;
+        border-radius: 6px !important;
+      }
+    }
   </style>
 </head>
 <body class="bg-slate-100 text-slate-800 antialiased font-sans pb-24 select-none">
@@ -58,6 +116,9 @@
               <h1 class="text-base font-bold leading-tight">車上點名登車驗證</h1>
               <span class="text-[9px] font-black bg-emerald-500 text-white px-1.5 py-0.5 rounded-full flex items-center shadow-sm">
                 <i data-lucide="shield-check" class="w-3 h-3 mr-0.5"></i> E2EE
+              </span>
+              <span class="text-[9px] font-bold bg-blue-500/80 text-white px-1.5 py-0.5 rounded-full shadow-sm">
+                v2.1 雙模核銷
               </span>
             </div>
             <p class="text-[11px] text-blue-100 opacity-90">Google Sheets 雲端即時同步</p>
@@ -223,10 +284,10 @@
               <p class="text-[11px] text-rose-200 leading-relaxed">{{ cameraError }}</p>
               
               <div class="pt-2 flex flex-col gap-2">
-                <button @click="triggerPhotoScan" class="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 shadow-md transition">
+                <label for="photoFileInput" class="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center justify-center space-x-1.5 shadow-md transition cursor-pointer">
                   <i data-lucide="camera" class="w-4 h-4"></i>
                   <span>📸 改用拍照掃描 (相容 100%，無須串流權限)</span>
-                </button>
+                </label>
                 <button @click="startScanner" class="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium flex items-center justify-center space-x-1 border border-slate-600 transition">
                   <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
                   <span>重新嘗試連線相機</span>
@@ -252,10 +313,10 @@
                   <span>📷 開啟即時相機鏡頭</span>
                 </button>
 
-                <button @click="triggerPhotoScan" class="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-md shadow-emerald-600/30 transition">
+                <label for="photoFileInput" class="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-2 shadow-md shadow-emerald-600/30 transition cursor-pointer">
                   <i data-lucide="camera" class="w-4 h-4"></i>
                   <span>📸 拍照掃描 (無須串流權限)</span>
-                </button>
+                </label>
               </div>
             </div>
 
@@ -272,10 +333,10 @@
                 <i data-lucide="switch-camera" class="w-3.5 h-3.5"></i>
                 <span>換鏡頭</span>
               </button>
-              <button @click="triggerPhotoScan" class="p-1.5 bg-emerald-700 hover:bg-emerald-600 rounded-lg text-white text-[11px] flex items-center space-x-1 transition" title="拍照對焦核銷">
+              <label for="photoFileInput" class="p-1.5 bg-emerald-700 hover:bg-emerald-600 rounded-lg text-white text-[11px] flex items-center space-x-1 transition cursor-pointer" title="拍照對焦核銷">
                 <i data-lucide="camera" class="w-3.5 h-3.5"></i>
                 <span>拍照</span>
-              </button>
+              </label>
               <button @click="stopScanner" class="p-1.5 bg-rose-700 hover:bg-rose-600 rounded-lg text-white text-[11px] flex items-center space-x-1 transition" title="暫停鏡頭">
                 <i data-lucide="power" class="w-3.5 h-3.5"></i>
                 <span>關閉</span>
@@ -293,10 +354,10 @@
         <!-- 備用核銷工具 (拍照掃描 + 手動輸入條碼) -->
         <div class="grid grid-cols-1 gap-2">
           <!-- 拍照掃描按鈕 (永遠醒目可點) -->
-          <button @click="triggerPhotoScan" class="w-full py-2 px-3 bg-white border border-emerald-300 hover:bg-emerald-50 active:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-center space-x-2 shadow-sm transition">
+          <label for="photoFileInput" class="w-full py-2 px-3 bg-white border border-emerald-300 hover:bg-emerald-50 active:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-semibold flex items-center justify-center space-x-2 shadow-sm transition cursor-pointer">
             <i data-lucide="camera" class="w-4 h-4 text-emerald-600"></i>
             <span>📸 點此拍照掃描 (支援模糊/暗處對焦，相容性 100%)</span>
-          </button>
+          </label>
 
           <!-- 手動輸入條碼核銷 (備用) -->
           <div class="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm flex items-center space-x-2">
@@ -403,40 +464,73 @@
         </div>
       </div>
 
-      <!-- ================= 頁籤 3: 乘車條碼 / 防偽票券清單 (純本地離線產碼) ================= -->
+      <!-- ================= 頁籤 3: 乘車條碼 / 防偽識別證清單 (全行程通用版，可一鍵列印) ================= -->
       <div v-show="currentTab === 'tickets'" class="space-y-3">
-        <div class="bg-indigo-50 border border-indigo-200 p-3 rounded-xl text-indigo-900 text-xs flex items-start space-x-2">
-          <i data-lucide="shield-check" class="w-5 h-5 text-indigo-600 shrink-0 mt-0.5"></i>
-          <div>
-            <p class="font-bold">E2EE 端到端防偽 QR Code (100% 本地生成)</p>
-            <p class="text-[11px] text-indigo-700 mt-0.5">此頁面所有二維條碼皆在您的手機本地瀏覽器即時繪製，絕不傳輸至第三方伺服器，具備 HMAC 數位簽章防偽功能。</p>
+        <!-- 頂部操作與列印控制列 (列印時自動隱藏) -->
+        <div class="no-print bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-200 p-3.5 rounded-2xl text-indigo-950 text-xs shadow-sm space-y-2.5">
+          <div class="flex items-start space-x-2.5">
+            <div class="p-1.5 bg-indigo-600 text-white rounded-lg shadow-sm shrink-0 mt-0.5">
+              <i data-lucide="award" class="w-4 h-4"></i>
+            </div>
+            <div class="flex-1">
+              <div class="flex items-center space-x-2">
+                <span class="font-black text-sm text-indigo-900">全行程通用乘車識別證</span>
+                <span class="text-[9px] bg-emerald-600 text-white font-bold px-1.5 py-0.2 rounded-full shadow-sm">一人一張・從頭用到尾</span>
+              </div>
+              <p class="text-[11px] text-indigo-800/90 mt-1 leading-relaxed">
+                條碼已優化為<strong>「全行程通用規格」</strong>，去程、用餐、景點、回程或換車皆免換證！QR Code 已依需求加大為標準 <strong>2cm × 2cm</strong>，大字姓名清晰可辨，支援直接 A4 列印裁切。
+              </p>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 pt-1 border-t border-indigo-100">
+            <button @click="printBadges" class="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white font-bold py-2 px-4 rounded-xl shadow-md flex items-center justify-center space-x-2 transition">
+              <i data-lucide="printer" class="w-4 h-4"></i>
+              <span>🖨️ 直接列印全體識別證 (A4)</span>
+            </button>
+            <a href="print_tickets.html" target="_blank" class="bg-white border border-indigo-300 hover:bg-indigo-100 text-indigo-700 font-semibold py-2 px-3 rounded-xl flex items-center justify-center space-x-1 transition text-xs shadow-sm">
+              <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+              <span>獨立列印頁面</span>
+            </a>
           </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-2.5 max-h-[60vh] overflow-y-auto custom-scroll pr-1">
+        <!-- 識別證清單網格 (平時捲動檢視，按列印時自動展開為 A4 兩欄整齊排版) -->
+        <div class="print-grid grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[60vh] overflow-y-auto custom-scroll pr-1">
           <div 
             v-for="p in filteredPassengers" 
             :key="p.id" 
-            class="bg-white border border-slate-200 rounded-xl p-2.5 text-center shadow-sm flex flex-col items-center justify-between"
+            class="badge-card bg-white border border-dashed border-slate-300 rounded-2xl p-3 shadow-sm flex items-center justify-between space-x-3 transition hover:border-blue-400"
           >
-            <div class="w-full flex justify-between items-center text-[10px] font-bold text-slate-500 mb-1">
-              <span class="bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">{{ p.bus }}</span>
-              <span>{{ p.seat ? '座:' + p.seat : '' }}</span>
+            <!-- 左側：精確 2cm x 2cm QR Code 視窗 (20mm x 20mm) -->
+            <div class="flex flex-col items-center justify-center shrink-0">
+              <div class="bg-slate-50 border border-slate-200 rounded-lg p-0.5 shadow-inner flex items-center justify-center">
+                <div :id="'qr-' + p.id" class="qr-2cm"></div>
+              </div>
+              <span class="text-[9px] font-mono text-slate-400 mt-1 font-semibold">2cm × 2cm</span>
             </div>
 
-            <!-- 純本地 Canvas 繪製 QR Code (無外部依賴) -->
-            <div :id="'qr-' + p.id" class="w-24 h-24 my-1 flex items-center justify-center bg-slate-50 rounded-lg p-1 border"></div>
+            <!-- 右側：大字姓名與乘車資訊 -->
+            <div class="flex-1 min-w-0 flex flex-col justify-center space-y-0.5 text-left pl-1">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] font-black uppercase tracking-wider bg-indigo-100 text-indigo-800 px-1.5 py-0.2 rounded">
+                  {{ p.bus || '專車' }}
+                </span>
+                <span v-if="p.seat" class="text-[11px] font-bold text-slate-600">
+                  座位: {{ p.seat }}
+                </span>
+              </div>
 
-            <div class="mt-1 w-full">
-              <div class="text-xs font-bold text-slate-800 truncate">{{ p.name }}</div>
-              <div class="text-[10px] font-mono text-slate-400 truncate">#{{ p.id }}</div>
-            </div>
+              <!-- 乘客大字姓名 (超大加粗，胸牌一眼即辨) -->
+              <div class="text-xl font-black text-slate-900 tracking-wide truncate py-0.5">
+                {{ p.name }}
+              </div>
 
-            <div class="mt-2 w-full pt-1.5 border-t border-slate-100 flex items-center justify-center text-[10px]">
-              <span v-if="p.status === '已上車'" class="text-emerald-600 font-bold flex items-center">
-                <i data-lucide="check-circle-2" class="w-3 h-3 mr-1"></i> 已上車
-              </span>
-              <span v-else class="text-slate-400 font-medium">未上車</span>
+              <!-- 編號與通用識別標籤 -->
+              <div class="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-100">
+                <span class="font-mono font-bold text-slate-700">#{{ p.id }}</span>
+                <span class="text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.2 rounded">全行程通用</span>
+              </div>
             </div>
           </div>
         </div>
@@ -755,8 +849,9 @@
         };
 
         // ================= E2EE 本地防偽 Token 計算與驗證 =================
-        const generateClientToken = (id, trip, bus) => {
-          const payloadStr = JSON.stringify({ id: id, trip: trip || "", bus: bus || "" });
+        const generateClientToken = (id) => {
+          // 通用識別證：只綁定人員 ID 與數位簽章，不綁定特定 trip 或 bus，實現「從頭用到尾」
+          const payloadStr = JSON.stringify({ id: id.toString().trim() });
           const payloadB64 = CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(payloadStr))
             .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
           const hmac = CryptoJS.HmacSHA256(payloadB64, secretKey.value).toString(CryptoJS.enc.Hex).substring(0, 16);
@@ -1271,21 +1366,29 @@
           }
         };
 
-        // 繪製純本地 QR Code (無第三方外洩)
+        // 繪製純本地 QR Code (無第三方外洩，通用 2cm x 2cm 規格)
         const renderAllLocalQrCodes = () => {
           filteredPassengers.value.forEach(p => {
             const containerId = 'qr-' + p.id;
             const el = document.getElementById(containerId);
             if (el) {
               el.innerHTML = "";
-              const token = generateClientToken(p.id, selectedTrip.value, p.bus);
+              const token = generateClientToken(p.id);
               new QRCode(el, {
                 text: token,
-                width: 90,
-                height: 90,
+                width: 160,
+                height: 160,
                 correctLevel: QRCode.CorrectLevel.M
               });
             }
+          });
+        };
+
+        const printBadges = () => {
+          // 列印前先確保 QR Code 渲染完畢
+          renderAllLocalQrCodes();
+          nextTick(() => {
+            window.print();
           });
         };
 
@@ -1309,11 +1412,11 @@
             const el = document.getElementById("modal-qr");
             if (el) {
               el.innerHTML = "";
-              const token = generateClientToken(passenger.id, selectedTrip.value, passenger.bus);
+              const token = generateClientToken(passenger.id);
               new QRCode(el, {
                 text: token,
-                width: 160,
-                height: 160,
+                width: 180,
+                height: 180,
                 correctLevel: QRCode.CorrectLevel.M
               });
             }
@@ -1413,6 +1516,7 @@
           onPhotoSelected,
           switchTab,
           showSingleTicket,
+          printBadges,
           openSettings,
           saveSettings
         };
