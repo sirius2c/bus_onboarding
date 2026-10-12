@@ -42,17 +42,32 @@
       border-radius: 4px;
     }
 
-    /* 2cm x 2cm QR Code 物理尺寸 (20mm x 20mm) */
-    .qr-2cm {
-      width: 20mm !important;
-      height: 20mm !important;
-      min-width: 20mm !important;
-      min-height: 20mm !important;
+    /* 1.5cm x 1.5cm QR Code 物理尺寸 (15mm x 15mm) */
+    .qr-15mm {
+      width: 15mm !important;
+      height: 15mm !important;
+      min-width: 15mm !important;
+      min-height: 15mm !important;
     }
-    .qr-2cm canvas, .qr-2cm img {
-      width: 20mm !important;
-      height: 20mm !important;
+    .qr-15mm canvas, .qr-15mm img {
+      width: 15mm !important;
+      height: 15mm !important;
       display: block;
+    }
+
+    /* 廠商貼紙預設規格：寬 2cm x 高 3cm (20mm x 30mm)，QR Code (15mm x 15mm) 置中偏上，下方為姓名 */
+    .sticker-2x3 {
+      width: 20mm !important;
+      height: 30mm !important;
+      min-width: 20mm !important;
+      min-height: 30mm !important;
+      padding: 2.5mm 2.5mm 1.5mm 2.5mm !important;
+      box-sizing: border-box !important;
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      background: white !important;
     }
 
     @media print {
@@ -82,9 +97,9 @@
         display: block !important;
       }
       .print-grid {
-        display: grid !important;
-        grid-template-columns: repeat(2, 1fr) !important;
-        gap: 6mm !important;
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 4mm !important;
         max-height: none !important;
         overflow: visible !important;
         padding: 0 !important;
@@ -92,11 +107,30 @@
       .badge-card {
         break-inside: avoid !important;
         page-break-inside: avoid !important;
-        border: 1.5px dashed #64748b !important;
+        border: 1px dashed #64748b !important;
         box-shadow: none !important;
         background: white !important;
-        padding: 8px 12px !important;
-        border-radius: 6px !important;
+        border-radius: 2mm !important;
+      }
+      .vendor-print-wrap {
+        max-height: none !important;
+        overflow: visible !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+      }
+      .vendor-table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+      }
+      .vendor-table th, .vendor-table td {
+        border: 1px solid #334155 !important;
+        padding: 6px 10px !important;
+        font-size: 11pt !important;
+      }
+      .vendor-table tr {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
       }
     }
   </style>
@@ -464,72 +498,177 @@
         </div>
       </div>
 
-      <!-- ================= 頁籤 3: 乘車條碼 / 防偽識別證清單 (全行程通用版，可一鍵列印) ================= -->
+      <!-- ================= 頁籤 3: 廠商貼紙表單 & 防偽識別證清單 ================= -->
       <div v-show="currentTab === 'tickets'" class="space-y-3">
-        <!-- 頂部操作與列印控制列 (列印時自動隱藏) -->
-        <div class="no-print bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-200 p-3.5 rounded-2xl text-indigo-950 text-xs shadow-sm space-y-2.5">
-          <div class="flex items-start space-x-2.5">
-            <div class="p-1.5 bg-indigo-600 text-white rounded-lg shadow-sm shrink-0 mt-0.5">
-              <i data-lucide="award" class="w-4 h-4"></i>
-            </div>
-            <div class="flex-1">
-              <div class="flex items-center space-x-2">
-                <span class="font-black text-sm text-indigo-900">全行程通用乘車識別證</span>
-                <span class="text-[9px] bg-emerald-600 text-white font-bold px-1.5 py-0.2 rounded-full shadow-sm">一人一張・從頭用到尾</span>
+        <!-- 子模式切換：1. 廠商印製貼紙表單 (流水碼 + 姓名 O 遮罩) / 2. 自行列印識別證 (含 2cm QR 圖) -->
+        <div class="no-print flex bg-indigo-100/80 p-1 rounded-xl text-xs font-bold text-indigo-900 border border-indigo-200">
+          <button 
+            @click="setTicketSubMode('vendor')" 
+            class="flex-1 py-2 px-2 rounded-lg flex items-center justify-center space-x-1.5 transition"
+            :class="ticketSubMode === 'vendor' ? 'bg-indigo-600 text-white shadow-sm' : 'hover:bg-indigo-200/60 text-indigo-800'"
+          >
+            <i data-lucide="table" class="w-4 h-4"></i>
+            <span>🏭 廠商貼紙表單 (流水碼 + 姓名O)</span>
+          </button>
+          <button 
+            @click="setTicketSubMode('badges')" 
+            class="flex-1 py-2 px-2 rounded-lg flex items-center justify-center space-x-1.5 transition"
+            :class="ticketSubMode === 'badges' ? 'bg-indigo-600 text-white shadow-sm' : 'hover:bg-indigo-200/60 text-indigo-800'"
+          >
+            <i data-lucide="qr-code" class="w-4 h-4"></i>
+            <span>🪪 自行列印識別證 (含 QR 圖)</span>
+          </button>
+        </div>
+
+        <!-- 子模式 A：交給廠商印製 QR Code 貼紙專用表單 (僅流水碼 + 姓名中間 O 遮罩) -->
+        <div v-if="ticketSubMode === 'vendor'" class="space-y-3">
+          <div class="no-print bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 p-3.5 rounded-2xl text-emerald-950 text-xs shadow-sm space-y-2.5">
+            <div class="flex items-start space-x-2.5">
+              <div class="p-1.5 bg-emerald-600 text-white rounded-lg shadow-sm shrink-0 mt-0.5">
+                <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
               </div>
-              <p class="text-[11px] text-indigo-800/90 mt-1 leading-relaxed">
-                條碼已優化為<strong>「全行程通用規格」</strong>，去程、用餐、景點、回程或換車皆免換證！QR Code 已依需求加大為標準 <strong>2cm × 2cm</strong>，大字姓名清晰可辨，支援直接 A4 列印裁切。
-              </p>
+              <div class="flex-1">
+                <div class="flex items-center space-x-2">
+                  <span class="font-black text-sm text-emerald-900">廠商印製 QR Code 貼紙專用表單</span>
+                  <span class="text-[9px] bg-emerald-600 text-white font-bold px-1.5 py-0.2 rounded-full shadow-sm">個資保護・中間字 O</span>
+                </div>
+                <p class="text-[11px] text-emerald-800/90 mt-1 leading-relaxed">
+                  專供交給外包印刷廠製作 QR Code 貼紙！表單<strong>僅列出「QR Code 流水碼」與「對應遮罩姓名（如：王O明）」</strong>，廠商直接將流水碼轉為 QR Code 並印上遮罩姓名即可，全程通用且不外洩完整個資。
+                </p>
+              </div>
+            </div>
+
+            <!-- 流水碼格式選擇 -->
+            <div class="flex items-center justify-between bg-white/80 px-3 py-2 rounded-xl border border-emerald-200/80 text-[11px]">
+              <span class="font-bold text-emerald-900">提供給廠商的流水碼格式：</span>
+              <select v-model="vendorCodeType" class="bg-white border border-emerald-300 text-emerald-900 font-bold rounded-lg px-2 py-1 text-[11px] focus:outline-none">
+                <option value="id">純流水碼 (如 A001，簡潔好印・推薦)</option>
+                <option value="token">E2EE 防偽加密流水碼 (E2E...)</option>
+              </select>
+            </div>
+
+            <!-- 匯出與列印按鈕列 -->
+            <div class="grid grid-cols-3 gap-2 pt-1">
+              <button @click="printVendorTable" class="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold py-2 px-2 rounded-xl shadow-sm flex items-center justify-center space-x-1 transition text-[11px]">
+                <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+                <span>🖨️ 列印表單</span>
+              </button>
+              <button @click="exportVendorCsv" class="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold py-2 px-2 rounded-xl shadow-sm flex items-center justify-center space-x-1 transition text-[11px]">
+                <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                <span>📥 下載 CSV</span>
+              </button>
+              <button @click="copyVendorTable" class="bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-800 font-bold py-2 px-2 rounded-xl shadow-sm flex items-center justify-center space-x-1 transition text-[11px]">
+                <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                <span>{{ copySuccessMsg || '📋 複製表格' }}</span>
+              </button>
             </div>
           </div>
 
-          <div class="flex flex-wrap items-center gap-2 pt-1 border-t border-indigo-100">
-            <button @click="printBadges" class="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white font-bold py-2 px-4 rounded-xl shadow-md flex items-center justify-center space-x-2 transition">
-              <i data-lucide="printer" class="w-4 h-4"></i>
-              <span>🖨️ 直接列印全體識別證 (A4)</span>
-            </button>
-            <a href="print_tickets.html" target="_blank" class="bg-white border border-indigo-300 hover:bg-indigo-100 text-indigo-700 font-semibold py-2 px-3 rounded-xl flex items-center justify-center space-x-1 transition text-xs shadow-sm">
-              <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-              <span>獨立列印頁面</span>
-            </a>
+          <!-- 廠商印製明細表 (螢幕檢視 + A4 直接列印) -->
+          <div class="vendor-print-wrap bg-white border border-slate-200 rounded-2xl p-3.5 shadow-sm max-h-[60vh] overflow-y-auto custom-scroll">
+            <!-- 給廠商的 1:1 貼紙完稿規格示意圖 + 尺寸說明 -->
+            <div class="mb-3 pb-3 border-b-2 border-slate-300 flex items-center justify-between gap-3">
+              <div class="space-y-1 flex-1">
+                <div class="flex items-center space-x-2">
+                  <h3 class="text-sm font-black text-slate-900">📋 QR Code 貼紙印製明細表 (廠商製稿專用)</h3>
+                  <span class="text-[11px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">
+                    共 {{ uniqueVendorList.length }} 張
+                  </span>
+                </div>
+                <ul class="text-[11px] text-slate-700 space-y-0.5 list-disc pl-4 leading-snug">
+                  <li><strong>貼紙尺寸</strong>：<strong>寬 2cm × 高 3cm</strong>（直式，20mm × 30mm）</li>
+                  <li><strong>上方條碼</strong>：將「QR Code 流水碼」轉為 <strong>1.5cm × 1.5cm QR Code</strong>，置於<strong>中間偏上</strong>（上、左、右各留白 2.5mm）</li>
+                  <li><strong>下方文字</strong>：於 QR Code 下方置中印出<strong>「印製姓名」</strong>（粗體黑字，如：<strong>王O明</strong>）</li>
+                </ul>
+              </div>
+
+              <!-- 右側 1:1 物理尺寸貼紙樣張示意圖 (寬 2cm x 高 3cm) -->
+              <div class="flex flex-col items-center shrink-0">
+                <div class="sticker-2x3 border-2 border-slate-800 rounded shadow-sm relative">
+                  <div class="w-[15mm] h-[15mm] border border-dashed border-slate-500 bg-slate-50 flex flex-col items-center justify-center text-[7px] font-mono text-slate-700 leading-tight text-center">
+                    <span class="font-bold">QR Code</span>
+                    <span>1.5×1.5cm</span>
+                  </div>
+                  <div class="text-[11px] font-black text-slate-900 tracking-wider leading-none pb-0.5">
+                    王O明
+                  </div>
+                </div>
+                <span class="text-[9px] font-mono font-bold text-slate-500 mt-1">1:1 樣張 (2×3cm)</span>
+              </div>
+            </div>
+
+            <table class="vendor-table w-full text-left border-collapse text-xs">
+              <thead>
+                <tr class="bg-slate-100 text-slate-700 border-b-2 border-slate-300">
+                  <th class="py-2 px-2.5 font-bold w-14 text-center">項次</th>
+                  <th class="py-2 px-3 font-bold">QR Code 流水碼 (條碼內容)</th>
+                  <th class="py-2 px-3 font-bold w-32 text-center">下方印製姓名 (O遮罩)</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-200">
+                <tr v-for="(item, idx) in uniqueVendorList" :key="item.id" class="hover:bg-slate-50">
+                  <td class="py-2 px-2.5 text-center font-mono text-slate-500">{{ idx + 1 }}</td>
+                  <td class="py-2 px-3 font-mono font-bold text-slate-900 break-all select-all">{{ item.qrCodeText }}</td>
+                  <td class="py-2 px-3 text-center font-black text-sm text-slate-900 tracking-wider select-all">{{ item.maskedName }}</td>
+                </tr>
+                <tr v-if="uniqueVendorList.length === 0">
+                  <td colspan="3" class="py-8 text-center text-slate-400">尚無人員名單資料</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
 
-        <!-- 識別證清單網格 (平時捲動檢視，按列印時自動展開為 A4 兩欄整齊排版) -->
-        <div class="print-grid grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[60vh] overflow-y-auto custom-scroll pr-1">
-          <div 
-            v-for="p in filteredPassengers" 
-            :key="p.id" 
-            class="badge-card bg-white border border-dashed border-slate-300 rounded-2xl p-3 shadow-sm flex items-center justify-between space-x-3 transition hover:border-blue-400"
-          >
-            <!-- 左側：精確 2cm x 2cm QR Code 視窗 (20mm x 20mm) -->
-            <div class="flex flex-col items-center justify-center shrink-0">
-              <div class="bg-slate-50 border border-slate-200 rounded-lg p-0.5 shadow-inner flex items-center justify-center">
-                <div :id="'qr-' + p.id" class="qr-2cm"></div>
+        <!-- 子模式 B：1:1 貼紙實體排版預覽與自行列印 (寬 2cm x 高 3cm，上方 1.5cm QR + 下方姓名) -->
+        <div v-show="ticketSubMode === 'badges'" class="space-y-3">
+          <!-- 頂部操作與列印控制列 (列印時自動隱藏) -->
+          <div class="no-print bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-200 p-3.5 rounded-2xl text-indigo-950 text-xs shadow-sm space-y-2.5">
+            <div class="flex items-start space-x-2.5">
+              <div class="p-1.5 bg-indigo-600 text-white rounded-lg shadow-sm shrink-0 mt-0.5">
+                <i data-lucide="award" class="w-4 h-4"></i>
               </div>
-              <span class="text-[9px] font-mono text-slate-400 mt-1 font-semibold">2cm × 2cm</span>
+              <div class="flex-1">
+                <div class="flex items-center space-x-2">
+                  <span class="font-black text-sm text-indigo-900">2cm × 3cm 貼紙實體預覽與列印</span>
+                  <span class="text-[9px] bg-emerald-600 text-white font-bold px-1.5 py-0.2 rounded-full shadow-sm">1:1 真實比例</span>
+                </div>
+                <p class="text-[11px] text-indigo-800/90 mt-1 leading-relaxed">
+                  已完全依照您的貼紙規格排版：外框 <strong>寬 2cm × 高 3cm</strong>，上方置中 <strong>1.5cm × 1.5cm QR Code</strong>（上左右各留 2.5mm 安全白邊），下方印出<strong>姓名</strong>。可先用 A4 印出試掃測試！
+                </p>
+              </div>
             </div>
 
-            <!-- 右側：大字姓名與乘車資訊 -->
-            <div class="flex-1 min-w-0 flex flex-col justify-center space-y-0.5 text-left pl-1">
-              <div class="flex items-center justify-between">
-                <span class="text-[10px] font-black uppercase tracking-wider bg-indigo-100 text-indigo-800 px-1.5 py-0.2 rounded">
-                  {{ p.bus || '專車' }}
-                </span>
-                <span v-if="p.seat" class="text-[11px] font-bold text-slate-600">
-                  座位: {{ p.seat }}
-                </span>
-              </div>
+            <!-- 姓名遮罩開關 -->
+            <label class="flex items-center justify-between bg-white/80 px-3 py-2 rounded-xl border border-indigo-200/80 cursor-pointer">
+              <span class="font-bold text-indigo-900 text-[11px]">🛡️ 姓名中間以 O 代替 (如：王O明)</span>
+              <input type="checkbox" v-model="maskBadgeName" class="w-4 h-4 text-indigo-600 rounded cursor-pointer" />
+            </label>
 
-              <!-- 乘客大字姓名 (超大加粗，胸牌一眼即辨) -->
-              <div class="text-xl font-black text-slate-900 tracking-wide truncate py-0.5">
-                {{ p.name }}
-              </div>
+            <div class="flex flex-wrap items-center gap-2 pt-1 border-t border-indigo-100">
+              <button @click="printBadges" class="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white font-bold py-2 px-4 rounded-xl shadow-md flex items-center justify-center space-x-2 transition">
+                <i data-lucide="printer" class="w-4 h-4"></i>
+                <span>🖨️ 直接列印 2×3cm 貼紙樣張 (A4)</span>
+              </button>
+              <a href="print_tickets.html" target="_blank" class="bg-white border border-indigo-300 hover:bg-indigo-100 text-indigo-700 font-semibold py-2 px-3 rounded-xl flex items-center justify-center space-x-1 transition text-xs shadow-sm">
+                <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                <span>獨立列印頁面</span>
+              </a>
+            </div>
+          </div>
 
-              <!-- 編號與通用識別標籤 -->
-              <div class="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-100">
-                <span class="font-mono font-bold text-slate-700">#{{ p.id }}</span>
-                <span class="text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.2 rounded">全行程通用</span>
+          <!-- 寬 2cm x 高 3cm 直式貼紙清單網格 (1:1 物理尺寸) -->
+          <div class="print-grid flex flex-wrap justify-center sm:justify-start gap-3 max-h-[60vh] overflow-y-auto custom-scroll p-2 bg-slate-200/60 rounded-2xl">
+            <div 
+              v-for="p in filteredPassengers" 
+              :key="p.id" 
+              class="badge-card sticker-2x3 border border-dashed border-slate-400 rounded shadow-sm transition hover:border-blue-500"
+            >
+              <!-- 上方中間偏上：精確 1.5cm x 1.5cm QR Code (15mm x 15mm，上左右各留 2.5mm 白邊) -->
+              <div :id="'qr-' + p.id" class="qr-15mm"></div>
+
+              <!-- 下方置中：乘客姓名 (支援 O 遮罩) -->
+              <div class="w-full text-center font-black text-[12px] text-slate-900 tracking-wider truncate leading-tight pb-0.5">
+                {{ maskBadgeName ? maskName(p.name) : p.name }}
               </div>
             </div>
           </div>
@@ -770,6 +909,12 @@
         const passengers = ref([]);
         const loading = ref(false);
         const currentTab = ref("scan");
+
+        // 廠商貼紙表單與識別證子模式狀態
+        const ticketSubMode = ref("vendor"); // 'vendor' (廠商貼紙表單) | 'badges' (自行列印識別證)
+        const vendorCodeType = ref("id");    // 'id' (純流水碼) | 'token' (E2EE 防偽碼)
+        const maskBadgeName = ref(true);     // 識別證姓名中間以 O 代替
+        const copySuccessMsg = ref("");
 
         // 搜尋與手動輸入
         const searchKeyword = ref("");
@@ -1366,25 +1511,108 @@
           }
         };
 
-        // 繪製純本地 QR Code (無第三方外洩，通用 2cm x 2cm 規格)
+        // 將姓名中間字以 O 代替 (例如：王大明 -> 王O明、王明 -> 王O、歐陽菲菲 -> 歐OO菲)
+        const maskName = (rawName) => {
+          if (!rawName) return "";
+          const str = rawName.toString().trim();
+          const chars = Array.from(str);
+          const len = chars.length;
+          if (len <= 1) return str;
+          if (len === 2) return chars[0] + "O";
+          if (len === 3) return chars[0] + "O" + chars[2];
+          return chars[0] + "O".repeat(len - 2) + chars[len - 1];
+        };
+
+        // 廠商製貼紙專用不重複清單 (僅含流水碼與遮罩後姓名)
+        const uniqueVendorList = computed(() => {
+          const seen = new Set();
+          const list = [];
+          filteredPassengers.value.forEach((p, idx) => {
+            const rawId = (p.id && p.id.toString().trim()) ? p.id.toString().trim() : `P${String(idx + 1).padStart(3, '0')}`;
+            if (seen.has(rawId)) return;
+            seen.add(rawId);
+            const qrCodeText = vendorCodeType.value === 'token' ? generateClientToken(rawId) : rawId;
+            list.push({
+              id: rawId,
+              qrCodeText: qrCodeText,
+              maskedName: maskName(p.name)
+            });
+          });
+          return list;
+        });
+
+        const setTicketSubMode = (mode) => {
+          ticketSubMode.value = mode;
+          nextTick(() => {
+            if (window.lucide) lucide.createIcons();
+            if (mode === "badges") {
+              renderAllLocalQrCodes();
+            }
+          });
+        };
+
+        const printVendorTable = () => {
+          ticketSubMode.value = "vendor";
+          nextTick(() => {
+            window.print();
+          });
+        };
+
+        const exportVendorCsv = () => {
+          if (uniqueVendorList.value.length === 0) return;
+          const headers = ["項次", "QR Code 流水碼", "印製姓名 (個資遮罩)"];
+          const rows = uniqueVendorList.value.map((item, idx) => [
+            idx + 1,
+            `"${item.qrCodeText.replace(/"/g, '""')}"`,
+            `"${item.maskedName.replace(/"/g, '""')}"`
+          ]);
+          const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(r => r.join(","))].join("\r\n");
+          const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.setAttribute("href", url);
+          link.setAttribute("download", `QR貼紙廠商印製表單_${selectedTrip.value || '名單'}.csv`);
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        };
+
+        const copyVendorTable = async () => {
+          if (uniqueVendorList.value.length === 0) return;
+          const headerLine = "項次\tQR Code 流水碼\t印製姓名";
+          const lines = uniqueVendorList.value.map((item, idx) => `${idx + 1}\t${item.qrCodeText}\t${item.maskedName}`);
+          const textToCopy = [headerLine, ...lines].join("\n");
+          try {
+            await navigator.clipboard.writeText(textToCopy);
+            copySuccessMsg.value = "✅ 已複製！";
+            setTimeout(() => { copySuccessMsg.value = ""; }, 2500);
+          } catch (e) {
+            console.warn("複製失敗:", e);
+          }
+        };
+
+        // 繪製純本地 QR Code (無第三方外洩，1.5cm x 1.5cm 最佳化低密度 21x21 規格)
         const renderAllLocalQrCodes = () => {
-          filteredPassengers.value.forEach(p => {
+          filteredPassengers.value.forEach((p, idx) => {
             const containerId = 'qr-' + p.id;
             const el = document.getElementById(containerId);
             if (el) {
-              el.innerHTML = "";
-              const token = generateClientToken(p.id);
+              el.replaceChildren();
+              const rawId = (p.id && p.id.toString().trim()) ? p.id.toString().trim() : `P${String(idx + 1).padStart(3, '0')}`;
+              const qrText = vendorCodeType.value === 'token' ? generateClientToken(rawId) : rawId;
               new QRCode(el, {
-                text: token,
+                text: qrText,
                 width: 160,
                 height: 160,
-                correctLevel: QRCode.CorrectLevel.M
+                correctLevel: vendorCodeType.value === 'token' ? QRCode.CorrectLevel.M : QRCode.CorrectLevel.L
               });
             }
           });
         };
 
         const printBadges = () => {
+          ticketSubMode.value = "badges";
           // 列印前先確保 QR Code 渲染完畢
           renderAllLocalQrCodes();
           nextTick(() => {
@@ -1411,7 +1639,7 @@
             if (window.lucide) lucide.createIcons();
             const el = document.getElementById("modal-qr");
             if (el) {
-              el.innerHTML = "";
+              el.replaceChildren();
               const token = generateClientToken(passenger.id);
               new QRCode(el, {
                 text: token,
@@ -1483,6 +1711,16 @@
           passengers,
           loading,
           currentTab,
+          ticketSubMode,
+          vendorCodeType,
+          maskBadgeName,
+          copySuccessMsg,
+          maskName,
+          uniqueVendorList,
+          setTicketSubMode,
+          printVendorTable,
+          exportVendorCsv,
+          copyVendorTable,
           searchKeyword,
           filterStatus,
           manualInputBarcode,
