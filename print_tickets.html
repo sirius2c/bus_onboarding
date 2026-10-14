@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>🎫 乘車券 / 登車條碼批次列印系統 (E2EE 防偽版)</title>
+  <title>🏷️ 彩之舞 U4274JP-30 (38.1×21.2mm) 貼紙精準對位列印系統</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Crypto-JS -->
@@ -13,68 +13,56 @@
   <!-- Vue 3 -->
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
   <style>
-    /* 1.5cm x 1.5cm QR Code 物理標準尺寸 (15mm x 15mm) */
-    .qr-15mm {
-      width: 15mm !important;
-      height: 15mm !important;
-      min-width: 15mm !important;
-      min-height: 15mm !important;
-    }
-    .qr-15mm canvas, .qr-15mm img {
-      width: 15mm !important;
-      height: 15mm !important;
-      display: block;
+    [v-cloak] { display: none; }
+
+    /* ============================================================================
+       彩之舞 U4274JP-30 (A4 65格：5 欄 × 13 列，單格 38.1mm × 21.2mm) 實體表格定位
+       採用固定尺寸 table-layout: fixed，徹底避免瀏覽器列印預覽時 Grid / 旋轉框跑位
+       ============================================================================ */
+    .u4274-a4-page {
+      width: 210mm;
+      height: 296mm;
+      background: #ffffff;
+      box-sizing: border-box;
+      position: relative;
+      overflow: hidden;
     }
 
-    /* 彩之舞 U4274JP-30 單格標籤尺寸：38.1mm x 21.2mm (一頁 5 欄 x 13 列 = 65 格) */
-    .u4274-cell {
-      width: 38.1mm !important;
-      height: 21.2mm !important;
-      min-width: 38.1mm !important;
-      min-height: 21.2mm !important;
-      max-width: 38.1mm !important;
-      max-height: 21.2mm !important;
-      box-sizing: border-box !important;
-      overflow: hidden !important;
-      position: relative !important;
-      background: white !important;
+    .u4274-sheet-table {
+      border-collapse: collapse;
+      table-layout: fixed;
+      margin: 0;
+      padding: 0;
+      border: none;
     }
 
-    /* 直貼旋轉模式：將 21.2mm(寬) x 38.1mm(高) 的直式內容逆時針旋轉 90 度放入 38.1x21.2mm 標籤格中 */
-    .u4274-vertical-inner {
-      width: 21.2mm !important;
-      height: 38.1mm !important;
-      position: absolute !important;
-      top: 50% !important;
-      left: 50% !important;
-      transform: translate(-50%, -50%) rotate(-90deg) !important;
-      display: flex !important;
-      flex-direction: column !important;
-      align-items: center !important;
-      justify-content: center !important;
-      padding: 2mm 1.5mm !important;
-      box-sizing: border-box !important;
-    }
-
-    /* 橫貼模式：左方 15x15mm QR Code + 右方姓名 */
-    .u4274-horizontal-inner {
-      width: 38.1mm !important;
-      height: 21.2mm !important;
-      display: flex !important;
-      flex-direction: row !important;
-      align-items: center !important;
-      justify-content: flex-start !important;
-      padding: 1.5mm 2mm 1.5mm 2.5mm !important;
-      box-sizing: border-box !important;
-      gap: 2mm !important;
+    .u4274-sheet-table td {
+      padding: 0;
+      margin: 0;
+      vertical-align: middle;
+      box-sizing: border-box;
+      overflow: hidden;
+      position: relative;
     }
 
     /* 螢幕預覽時顯示淡虛線框，方便確認 65 格位置 */
     .u4274-cell-screen-border {
-      border: 1px dashed #cbd5e1;
+      outline: 1px dashed #cbd5e1;
+      outline-offset: -0.5px;
     }
+
+    /* 勾選「印出對位框線」時，使用不影響盒模型尺寸的內縮邊框 */
     .u4274-cell-print-border {
-      border: 0.5px dashed #94a3b8 !important;
+      outline: 0.6pt dashed #475569 !important;
+      outline-offset: -0.3pt !important;
+    }
+
+    /* 單一靜態 QR 圖檔，避免 qrcode.js 同時產生 canvas + img 造成列印預覽錯位 */
+    .qr-single-img {
+      display: block !important;
+      object-fit: contain !important;
+      image-rendering: pixelated !important;
+      flex-shrink: 0 !important;
     }
 
     @media print {
@@ -82,41 +70,58 @@
         size: A4 portrait;
         margin: 0mm !important;
       }
-      html, body {
-        width: 210mm !important;
-        background-color: white !important;
-        padding: 0 !important;
-        margin: 0 !important;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
+
+      *, *::before, *::after {
+        box-sizing: border-box !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
       }
-      #app {
+
+      /* 徹底清除所有外層容器在列印時的邊距、留白與最大寬度限制 */
+      html, body, #app, .print-root-wrap {
+        width: 210mm !important;
+        margin: 0mm !important;
+        padding: 0mm !important;
+        background: #ffffff !important;
+        border: none !important;
+        box-shadow: none !important;
         max-width: none !important;
-        width: 210mm !important;
-        margin: 0 !important;
-        padding: 0 !important;
+        min-height: 0 !important;
+        display: block !important;
       }
+
+      /* 徹底消除 Tailwind space-y-* 在 .no-print 隱藏後殘留的 margin-top (造成整頁往下跑位的主因) */
+      .space-y-2 > *, .space-y-3 > *, .space-y-4 > *, .space-y-6 > *, .space-y-8 > * {
+        margin-top: 0mm !important;
+        margin-bottom: 0mm !important;
+      }
+
       .no-print {
         display: none !important;
       }
+
       .u4274-a4-page {
         width: 210mm !important;
-        height: 296.5mm !important;
-        box-sizing: border-box !important;
-        page-break-after: always !important;
-        break-after: page !important;
+        height: 296mm !important;
+        margin: 0mm !important;
         box-shadow: none !important;
         border: none !important;
-        margin: 0 !important;
+        page-break-after: always !important;
+        break-after: page !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
         overflow: hidden !important;
       }
+
       .u4274-a4-page:last-child {
         page-break-after: auto !important;
         break-after: auto !important;
       }
+
       .u4274-cell-screen-border {
-        border: none !important;
+        outline: none;
       }
+
       .vendor-table-card {
         padding: 10mm 12mm !important;
         box-shadow: none !important;
@@ -138,26 +143,23 @@
     }
   </style>
 </head>
-<body class="bg-slate-100 min-h-screen text-slate-800 p-4 md:p-8">
-  <div id="app" class="max-w-5xl mx-auto space-y-6">
+<body class="bg-slate-200 min-h-screen text-slate-800 p-4 md:p-6">
+  <div id="app" v-cloak class="max-w-5xl mx-auto">
     
-    <!-- 操作面板 (列印時隱藏) -->
-    <div class="no-print bg-white p-6 rounded-2xl shadow-md border border-slate-200 space-y-4">
+    <!-- 操作與跑位校正面板 (列印時完全隱藏，且不留任何 margin) -->
+    <div class="no-print bg-white p-5 rounded-2xl shadow-md border border-slate-200 space-y-4 mb-6">
       <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
         <div>
-          <div class="flex items-center space-x-2">
-            <h1 class="text-xl font-bold text-slate-800">
-              🏷️ 彩之舞 U4274JP-30 (38.1 × 21.2 mm) 標籤紙精準列印系統
+          <div class="flex items-center flex-wrap gap-2">
+            <h1 class="text-xl font-black text-slate-800">
+              🏷️ 彩之舞 U4274JP-30 (38.1 × 21.2 mm) 貼紙精準對位與校正系統
             </h1>
-            <span class="bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-0.5 rounded-full border border-emerald-200">
+            <span class="bg-emerald-100 text-emerald-800 text-xs font-bold px-2.5 py-0.5 rounded-full border border-emerald-200">
               A4 65格 (5欄 × 13列)
-            </span>
-            <span class="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-0.5 rounded-full border border-blue-200">
-              1.5×1.5cm QR ＋ 姓名O遮罩
             </span>
           </div>
           <p class="text-xs text-slate-500 mt-1">
-            已針對 <strong>彩之舞 U4274JP-30（單格 38.1 × 21.2 mm，一頁 65 格）</strong> 精準對位！支援<strong>「直貼（撕下轉90°變寬2.12×高3.81cm，上QR下姓名）」</strong>與<strong>「橫貼（左QR右姓名）」</strong>兩種排版。
+            已採用<strong>「純淨固定表格 (Table Fixed) ＋ 單一靜態影像」</strong>技術，解決點選列印預覽時格子跳動變形的問題，並內建<strong>印表機跑位微調校正器</strong>。
           </p>
         </div>
 
@@ -165,8 +167,8 @@
           <button v-if="printMode === 'vendor'" @click="exportVendorCsv" class="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-sm px-4 py-3 rounded-xl shadow-md flex items-center space-x-1.5 transition">
             <span>📥 下載 CSV</span>
           </button>
-          <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-sm px-6 py-3 rounded-xl shadow-lg flex items-center space-x-2 transition">
-            <span>🖨️ {{ printMode === 'badges' ? '直接列印 U4274JP-30 貼紙 (A4)' : '列印表單 (A4)' }}</span>
+          <button @click="triggerCleanPrint" class="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-sm px-6 py-3 rounded-xl shadow-lg flex items-center space-x-2 transition">
+            <span>🖨️ {{ printMode === 'badges' ? '開啟純淨列印視窗 (100% 不跑版)' : '列印表單 (A4)' }}</span>
           </button>
         </div>
       </div>
@@ -178,7 +180,7 @@
           class="flex-1 py-2.5 px-4 rounded-lg transition flex items-center justify-center space-x-2"
           :class="printMode === 'badges' ? 'bg-blue-600 text-white shadow' : 'text-slate-600 hover:text-slate-900'"
         >
-          <span>🏷️ 自己印貼紙：彩之舞 U4274JP-30 (38.1 × 21.2 mm，一頁 65 格精準對位)</span>
+          <span>🏷️ 自己印貼紙：彩之舞 U4274JP-30 (38.1 × 21.2 mm，一頁 65 格對位校正)</span>
         </button>
         <button 
           @click="setPrintMode('vendor')" 
@@ -208,133 +210,269 @@
         <div>
           <label class="font-bold text-slate-700 block mb-1">車次篩選</label>
           <select v-model="selectedBus" class="w-full p-2 border rounded-lg bg-white text-xs cursor-pointer">
-            <option value="ALL">全部車次 (印出所有人)</option>
+            <option value="ALL">全部車次 (共 {{ uniqueVendorList.length }} 人)</option>
             <option v-for="b in buses" :key="b" :value="b">{{ b }}</option>
           </select>
         </div>
       </div>
 
-      <!-- U4274JP-30 貼紙排版方向與微調設定 -->
-      <div v-if="printMode === 'badges'" class="bg-blue-50/70 border border-blue-200 rounded-xl p-4 space-y-3 text-xs">
-        <div class="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-blue-200/80">
-          <!-- 貼紙方向選擇 -->
-          <div class="flex items-center space-x-2">
-            <span class="font-bold text-blue-950">📐 貼紙排版方向：</span>
+      <!-- ================= 🎯 U4274JP-30 印表機跑位校正器 ================= -->
+      <div v-if="printMode === 'badges'" class="bg-indigo-50/80 border-2 border-indigo-200 rounded-2xl p-4 space-y-3.5 text-xs">
+        
+        <!-- 第一排：貼紙方向與姓名遮罩 -->
+        <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-indigo-200/80">
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span class="font-black text-indigo-950">🔄 貼紙排版方向：</span>
             <button 
-              @click="setStickerOrientation('vertical')" 
+              @click="stickerOrientation = 'vertical'" 
               class="px-3 py-1.5 rounded-lg font-bold transition border"
-              :class="stickerOrientation === 'vertical' ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-slate-700 border-slate-300'"
+              :class="stickerOrientation === 'vertical' ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-700 border-slate-300'"
             >
-              ↕️ 直貼：上方 1.5cm QR ＋ 下方姓名 (自動轉90°，撕下直貼為 寬2.12×高3.81cm)
+              ↕️ 直貼轉向 (撕下順時針轉90°直貼 = 上方QR ＋ 下方姓名)
             </button>
             <button 
-              @click="setStickerOrientation('horizontal')" 
+              @click="stickerOrientation = 'horizontal'" 
               class="px-3 py-1.5 rounded-lg font-bold transition border"
-              :class="stickerOrientation === 'horizontal' ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-slate-700 border-slate-300'"
+              :class="stickerOrientation === 'horizontal' ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-700 border-slate-300'"
             >
-              ↔️ 橫貼：左方 1.5cm QR ＋ 右方姓名 (寬3.81×高2.12cm)
+              ↔️ 橫貼標準 (不旋轉，左方QR ＋ 右方姓名)
+            </button>
+            <button 
+              @click="stickerOrientation = 'stack'" 
+              class="px-3 py-1.5 rounded-lg font-bold transition border"
+              :class="stickerOrientation === 'stack' ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-700 border-slate-300'"
+            >
+              ⬆️ 格內上下排 (不旋轉，上方1.3cm QR ＋ 下方姓名)
             </button>
           </div>
 
-          <label class="flex items-center space-x-1.5 cursor-pointer font-bold text-blue-950">
-            <input type="checkbox" v-model="maskBadgeName" class="w-4 h-4 text-blue-600 rounded" />
-            <span>🛡️ 姓名中間以 O 代替 (如：王O明)</span>
+          <label class="flex items-center space-x-1.5 cursor-pointer font-bold text-indigo-950 bg-white px-3 py-1.5 rounded-lg border border-indigo-200">
+            <input type="checkbox" v-model="maskBadgeName" class="w-4 h-4 text-indigo-600 rounded" />
+            <span>🛡️ 姓名中間以 O 代替 (王O明)</span>
           </label>
         </div>
 
-        <!-- 刀模邊界預設與微調 -->
-        <div class="grid grid-cols-2 sm:grid-cols-6 gap-2.5 items-end">
-          <div class="col-span-2">
-            <label class="font-bold text-slate-700 block mb-1">刀模邊界預設 (彩之舞 U4274JP-30)</label>
-            <select v-model="marginPreset" @change="applyMarginPreset" class="w-full p-1.5 border border-blue-300 rounded-lg bg-white font-bold text-xs">
-              <option value="tight">預設 A：無間距緊密型 (上10.7 / 左9.75 / 間距0mm)</option>
-              <option value="spaced">預設 B：有水平間距型 (上10.7 / 左4.75 / 水平間距2.5mm)</option>
-            </select>
+        <!-- 第二排：傻瓜方向微調按鈕 (解決整體偏上/偏下/偏左/偏右) -->
+        <div class="bg-white p-3 rounded-xl border border-indigo-200 space-y-2.5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="font-black text-indigo-950 text-sm flex items-center space-x-1.5">
+              <span>🎯 步驟 1：已預設套用「您的掃描器實測校正值 (上邊距 8.0mm / 單格高 20.6mm)」：</span>
+            </div>
+            <div class="flex items-center space-x-2">
+              <button @click="applyScannerCalibratedPreset" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold shadow-xs">
+                ✨ 套用掃描實測校正 (上8.0 / 高20.6mm)
+              </button>
+              <select v-model="marginPreset" @change="applyMarginPreset" class="p-1.5 border border-indigo-300 rounded-lg bg-indigo-50 font-bold text-indigo-900 text-xs">
+                <option value="calibrated">🎯 掃描器實測校正 (上8.0 / 單格高20.6 / 左9.75mm)</option>
+                <option value="tight">刀模預設 A：官方無間距 (上10.7 / 單格高21.2 / 左9.75mm)</option>
+                <option value="spaced">刀模預設 B：有水平間距 (上10.7 / 左4.75 / 欄距2.5mm)</option>
+              </select>
+              <button @click="resetCalibration" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold border border-slate-300">
+                🔄 官方預設值
+              </button>
+            </div>
           </div>
-          <div>
-            <label class="font-bold text-slate-700 block mb-1">上邊界 (mm)</label>
-            <input type="number" step="0.1" v-model.number="topMarginMm" class="w-full p-1.5 border rounded-lg font-mono text-xs bg-white" />
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <button @click="nudgePosition(0, -1)" class="py-2 px-3 bg-indigo-50 hover:bg-indigo-100 active:scale-95 text-indigo-900 font-bold rounded-lg border border-indigo-200 flex items-center justify-center space-x-1">
+              <span>⬆️ 印太下面？往上移 1mm</span>
+            </button>
+            <button @click="nudgePosition(0, 1)" class="py-2 px-3 bg-indigo-50 hover:bg-indigo-100 active:scale-95 text-indigo-900 font-bold rounded-lg border border-indigo-200 flex items-center justify-center space-x-1">
+              <span>⬇️ 印太上面？往下移 1mm</span>
+            </button>
+            <button @click="nudgePosition(-1, 0)" class="py-2 px-3 bg-indigo-50 hover:bg-indigo-100 active:scale-95 text-indigo-900 font-bold rounded-lg border border-indigo-200 flex items-center justify-center space-x-1">
+              <span>⬅️ 印太右邊？往左移 1mm</span>
+            </button>
+            <button @click="nudgePosition(1, 0)" class="py-2 px-3 bg-indigo-50 hover:bg-indigo-100 active:scale-95 text-indigo-900 font-bold rounded-lg border border-indigo-200 flex items-center justify-center space-x-1">
+              <span>➡️ 印太左邊？往右移 1mm</span>
+            </button>
           </div>
-          <div>
-            <label class="font-bold text-slate-700 block mb-1">左邊界 (mm)</label>
-            <input type="number" step="0.1" v-model.number="leftMarginMm" class="w-full p-1.5 border rounded-lg font-mono text-xs bg-white" />
-          </div>
-          <div>
-            <label class="font-bold text-slate-700 block mb-1">水平間距 (mm)</label>
-            <input type="number" step="0.1" v-model.number="colGapMm" class="w-full p-1.5 border rounded-lg font-mono text-xs bg-white" />
-          </div>
-          <div>
-            <label class="font-bold text-slate-700 block mb-1">跳過前 N 格空位</label>
-            <input type="number" min="0" max="64" v-model.number="skipSlots" class="w-full p-1.5 border rounded-lg font-mono text-xs bg-white" title="若貼紙已用掉前幾格，可設為跳過" />
+
+          <!-- 精確毫米參數微調 (含解決「越往下越偏 / 越往右越偏」的單格寬高微調) -->
+          <div class="pt-2 border-t border-slate-100">
+            <div class="font-bold text-slate-700 mb-2">
+              📏 步驟 2：精確毫米微調（根據您的掃描對比圖：第 1 列原本偏下 2.7mm、且每往下 1 列累積多出 0.58mm，因此將<strong>上邊距設為 8.0mm</strong>、<strong>單格高設為 20.6mm</strong> 即可從第 1 列到第 13 列全部正中對齊！）：
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-7 gap-2 items-end">
+              <div>
+                <label class="font-bold text-emerald-700 block mb-0.5">上邊距 (實測8.0)</label>
+                <input type="number" step="0.1" v-model.number="topMarginMm" @change="saveCalibration" class="w-full p-1.5 border border-emerald-400 rounded-lg font-mono font-bold text-xs bg-emerald-50/40 text-emerald-950" />
+              </div>
+              <div>
+                <label class="font-bold text-slate-600 block mb-0.5">左邊距 (mm)</label>
+                <input type="number" step="0.1" v-model.number="leftMarginMm" @change="saveCalibration" class="w-full p-1.5 border border-slate-300 rounded-lg font-mono font-bold text-xs bg-white" />
+              </div>
+              <div>
+                <label class="font-bold text-indigo-700 block mb-0.5" title="若越往右越偏，請微調此值">單格寬 (預設38.1)</label>
+                <input type="number" step="0.1" v-model.number="cellWidthMm" @change="saveCalibration" class="w-full p-1.5 border border-indigo-300 rounded-lg font-mono font-bold text-xs bg-indigo-50/40 text-indigo-900" />
+              </div>
+              <div>
+                <label class="font-bold text-emerald-700 block mb-0.5" title="解決第1列準但第12列往下跑位">單格高 (實測20.6)</label>
+                <input type="number" step="0.1" v-model.number="cellHeightMm" @change="saveCalibration" class="w-full p-1.5 border border-emerald-400 rounded-lg font-mono font-bold text-xs bg-emerald-50/40 text-emerald-950" />
+              </div>
+              <div>
+                <label class="font-bold text-slate-600 block mb-0.5">水平間距 (mm)</label>
+                <input type="number" step="0.1" v-model.number="colGapMm" @change="saveCalibration" class="w-full p-1.5 border border-slate-300 rounded-lg font-mono font-bold text-xs bg-white" />
+              </div>
+              <div>
+                <label class="font-bold text-slate-600 block mb-0.5">QR 尺寸 (mm)</label>
+                <input type="number" step="0.5" min="10" max="19" v-model.number="qrSizeMm" @change="saveCalibration" class="w-full p-1.5 border border-slate-300 rounded-lg font-mono font-bold text-xs bg-white" />
+              </div>
+              <div>
+                <label class="font-bold text-amber-800 block mb-0.5" title="跳過前面已撕掉用過的格數">跳過前 N 格</label>
+                <input type="number" min="0" max="64" v-model.number="skipSlots" class="w-full p-1.5 border border-amber-300 rounded-lg font-mono font-bold text-xs bg-amber-50/50 text-amber-900" />
+              </div>
+            </div>
           </div>
         </div>
 
-        <div class="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] text-blue-900">
-          <span>
-            💡 <strong>列印防跑位秘訣</strong>：按列印後，請在印表機設定將「<strong>邊界</strong>」選為「<strong>無 (None)</strong>」，「<strong>縮放比例</strong>」設為「<strong>100% (實際大小)</strong>」！
-          </span>
-          <label class="flex items-center space-x-1.5 cursor-pointer font-bold">
-            <input type="checkbox" v-model="showPrintBorder" class="w-3.5 h-3.5 text-blue-600 rounded" />
-            <span>列印時印出對位虛線框 (白紙測試對位時勾選，正式印貼紙請取消)</span>
+        <!-- 第三排：印表機必看檢查清單與對位測試框開關 -->
+        <div class="flex flex-wrap items-center justify-between gap-2 bg-amber-50 border border-amber-300 rounded-xl px-3.5 py-2.5 text-amber-950">
+          <div class="space-y-0.5">
+            <div class="font-black text-xs">
+              ⚠️ 為什麼按「列印」時預覽會跑掉？請在印表機視窗檢查這 3 項設定：
+            </div>
+            <div class="text-[11px] leading-relaxed">
+              1️⃣ <strong>紙張大小</strong>：必選 <strong>A4</strong>（不可選 Letter，否則高度差 1.8cm 會整頁跑掉）｜
+              2️⃣ <strong>邊界 (Margins)</strong>：必選 <strong>無 (None)</strong>｜
+              3️⃣ <strong>縮放比例 (Scale)</strong>：必選 <strong>100% / 實際大小</strong>（不可勾選「符合頁面大小 / 符合可列印區域」）
+            </div>
+          </div>
+          <label class="flex items-center space-x-1.5 cursor-pointer font-black bg-white px-3 py-2 rounded-xl border border-amber-400 text-amber-900 shadow-xs shrink-0">
+            <input type="checkbox" v-model="showPrintBorder" class="w-4 h-4 text-amber-600 rounded" />
+            <span>📏 列印時印出對位框線與座標 (白紙對光測試用)</span>
           </label>
         </div>
       </div>
     </div>
 
     <!-- ================= 模式二 (預設)：彩之舞 U4274JP-30 (38.1 x 21.2 mm, 5欄 x 13列 = 65格) A4 精準對位頁 ================= -->
-    <div v-show="printMode === 'badges'" class="space-y-8">
+    <div v-show="printMode === 'badges'" class="print-root-wrap">
       <div 
-        v-for="(pageItems, pageIdx) in paginatedStickerPages" 
-        :key="pageIdx"
-        class="u4274-a4-page bg-white mx-auto shadow-xl border border-slate-300"
+        v-for="(pageRows, pageIdx) in paginatedTableRows" 
+        :key="'page-' + pageIdx"
+        class="u4274-a4-page mx-auto shadow-xl border border-slate-300 mb-8"
         :style="{
-          width: '210mm',
-          minHeight: '297mm',
           paddingTop: topMarginMm + 'mm',
-          paddingLeft: leftMarginMm + 'mm',
-          boxSizing: 'border-box'
+          paddingLeft: leftMarginMm + 'mm'
         }"
       >
+        <!-- 測試對位時顯示於頂部邊界的 10cm (100mm) 真實比例檢測尺 -->
         <div 
-          style="display: grid; grid-template-columns: repeat(5, 38.1mm); grid-template-rows: repeat(13, 21.2mm);"
-          :style="{
-            columnGap: colGapMm + 'mm',
-            rowGap: rowGapMm + 'mm'
-          }"
+          v-if="showPrintBorder" 
+          style="position: absolute; top: 2mm; left: 10mm; width: 100mm; height: 4mm; border-bottom: 1pt solid #0f172a; border-left: 1pt solid #0f172a; border-right: 1pt solid #0f172a; font-size: 7pt; font-family: monospace; text-align: center; line-height: 3.5mm; color: #0f172a;"
         >
-          <div 
-            v-for="(slot, slotIdx) in pageItems" 
-            :key="slotIdx"
-            class="u4274-cell u4274-cell-screen-border"
-            :class="{ 'u4274-cell-print-border': showPrintBorder }"
-          >
-            <template v-if="slot && !slot.isEmpty">
-              <!-- 方向 A：直貼（撕下轉 90 度變 寬21.2mm x 高38.1mm，上方 1.5x1.5cm QR Code，下方姓名） -->
-              <div v-if="stickerOrientation === 'vertical'" class="u4274-vertical-inner">
-                <div :id="'print-qr-p' + pageIdx + '-s' + slotIdx" class="qr-15mm mb-1.5"></div>
-                <div class="w-full text-center font-black text-[11px] text-slate-900 tracking-wider leading-tight truncate">
-                  {{ maskBadgeName ? slot.maskedName : slot.name }}
-                </div>
-                <div class="text-[7px] font-mono text-slate-500 leading-none mt-0.5">
-                  #{{ slot.id }}
-                </div>
-              </div>
-
-              <!-- 方向 B：橫貼（寬38.1mm x 高21.2mm，左方 1.5x1.5cm QR Code，右方姓名） -->
-              <div v-else class="u4274-horizontal-inner">
-                <div :id="'print-qr-p' + pageIdx + '-s' + slotIdx" class="qr-15mm shrink-0"></div>
-                <div class="flex-1 min-w-0 flex flex-col justify-center text-center pr-0.5">
-                  <div class="font-black text-[13px] text-slate-900 tracking-wider leading-tight truncate">
-                    {{ maskBadgeName ? slot.maskedName : slot.name }}
-                  </div>
-                  <div class="text-[8px] font-mono font-bold text-slate-500 mt-1">
-                    #{{ slot.id }}
-                  </div>
-                </div>
-              </div>
-            </template>
-          </div>
+          ◀━━ 100mm (10cm) 比例尺：印出後拿尺量若非 10cm 代表印表機縮放未設 100% ━━▶
         </div>
+
+        <!-- 5 欄 × 13 列 固定尺寸 Table -->
+        <table class="u4274-sheet-table">
+          <tbody>
+            <template v-for="(rowSlots, rIdx) in pageRows" :key="'r-' + rIdx">
+              <!-- 若設定了垂直列間距 (rowGapMm > 0)，在列與列之間插入精確高度間隔列 -->
+              <tr v-if="rIdx > 0 && rowGapMm > 0" :style="{ height: rowGapMm + 'mm' }">
+                <td :colspan="colGapMm > 0 ? 9 : 5"></td>
+              </tr>
+
+              <tr :style="{ height: cellHeightMm + 'mm' }">
+                <template v-for="(slot, cIdx) in rowSlots" :key="'c-' + cIdx">
+                  <!-- 若設定了水平欄間距 (colGapMm > 0)，在欄與欄之間插入精確寬度間隔欄 -->
+                  <td v-if="cIdx > 0 && colGapMm > 0" :style="{ width: colGapMm + 'mm', height: cellHeightMm + 'mm' }"></td>
+
+                  <!-- 貼紙單格 (預設 38.1mm x 21.2mm) -->
+                  <td 
+                    class="u4274-cell-screen-border"
+                    :class="{ 'u4274-cell-print-border': showPrintBorder }"
+                    :style="{
+                      width: cellWidthMm + 'mm',
+                      minWidth: cellWidthMm + 'mm',
+                      maxWidth: cellWidthMm + 'mm',
+                      height: cellHeightMm + 'mm',
+                      minHeight: cellHeightMm + 'mm',
+                      maxHeight: cellHeightMm + 'mm'
+                    }"
+                  >
+                    <!-- 測試模式下顯示欄位座標 (如 1-1, 1-5, 13-5) 方便對光校正 -->
+                    <span 
+                      v-if="showPrintBorder" 
+                      style="position: absolute; top: 0.5mm; right: 1mm; font-size: 5.5pt; font-family: monospace; color: #94a3b8; line-height: 1; pointer-events: none; z-index: 10;"
+                    >
+                      {{ rIdx + 1 }}-{{ cIdx + 1 }}
+                    </span>
+
+                    <template v-if="slot && !slot.isEmpty">
+                      <!-- 排版 A：直貼轉向 (撕下貼紙順時針轉 90° 直貼時 = 上方 1.5cm QR Code、下方水平姓名)
+                           關鍵：容器保持 100% 水平不超出 21.2mm，僅將右側姓名文字盒逆時針轉 90 度，列印預覽 100% 不跑位！ -->
+                      <div 
+                        v-if="stickerOrientation === 'vertical'" 
+                        style="width: 100%; height: 100%; display: flex; flex-direction: row; align-items: center; justify-content: center; padding: 1mm 2mm; box-sizing: border-box; gap: 1.5mm;"
+                      >
+                        <!-- 左側 (撕下順時針轉 90° 後位於上方偏中)：1.5cm × 1.5cm 靜態 QR 圖 -->
+                        <img 
+                          v-if="qrDataUrls[slot.qrCodeText]" 
+                          :src="qrDataUrls[slot.qrCodeText]" 
+                          class="qr-single-img"
+                          :style="{ width: qrSizeMm + 'mm', height: qrSizeMm + 'mm', transform: 'rotate(-90deg)' }"
+                          alt="QR"
+                        />
+                        <!-- 右側 (撕下順時針轉 90° 後位於下方置中)：姓名逆時針旋轉 90°，盒高鎖定在 18mm 內絕不撐開列高 -->
+                        <div style="width: 14mm; height: 18mm; position: relative; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                          <div style="width: 18mm; text-align: center; transform: rotate(-90deg); white-space: nowrap;">
+                            <div style="font-weight: 900; font-size: 11.5px; color: #0f172a; letter-spacing: 0.05em; line-height: 1.1;">
+                              {{ maskBadgeName ? slot.maskedName : slot.name }}
+                            </div>
+                            <div style="font-size: 7px; font-family: monospace; color: #64748b; line-height: 1; margin-top: 1px;">
+                              #{{ slot.id }}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- 排版 B：橫貼標準 (不旋轉，左方 1.5cm QR Code ＋ 右方橫向姓名) -->
+                      <div 
+                        v-else-if="stickerOrientation === 'horizontal'" 
+                        style="width: 100%; height: 100%; display: flex; flex-direction: row; align-items: center; justify-content: flex-start; padding: 1mm 2mm 1mm 2.5mm; box-sizing: border-box; gap: 2mm;"
+                      >
+                        <img 
+                          v-if="qrDataUrls[slot.qrCodeText]" 
+                          :src="qrDataUrls[slot.qrCodeText]" 
+                          class="qr-single-img"
+                          :style="{ width: qrSizeMm + 'mm', height: qrSizeMm + 'mm' }"
+                          alt="QR"
+                        />
+                        <div style="flex: 1; min-width: 0; text-align: center;">
+                          <div style="font-weight: 900; font-size: 12.5px; color: #0f172a; letter-spacing: 0.04em; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            {{ maskBadgeName ? slot.maskedName : slot.name }}
+                          </div>
+                          <div style="font-size: 7.5px; font-family: monospace; font-weight: 700; color: #64748b; margin-top: 2px;">
+                            #{{ slot.id }}
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- 排版 C：格內上下排 (不旋轉，上方 1.3cm QR Code ＋ 下方姓名) -->
+                      <div 
+                        v-else 
+                        style="width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.8mm 1mm; box-sizing: border-box; gap: 0.8mm;"
+                      >
+                        <img 
+                          v-if="qrDataUrls[slot.qrCodeText]" 
+                          :src="qrDataUrls[slot.qrCodeText]" 
+                          class="qr-single-img"
+                          :style="{ width: Math.min(qrSizeMm, 13.5) + 'mm', height: Math.min(qrSizeMm, 13.5) + 'mm' }"
+                          alt="QR"
+                        />
+                        <div style="font-weight: 900; font-size: 10.5px; color: #0f172a; letter-spacing: 0.05em; line-height: 1; white-space: nowrap;">
+                          {{ maskBadgeName ? slot.maskedName : slot.name }}
+                        </div>
+                      </div>
+                    </template>
+                  </td>
+                </template>
+              </tr>
+            </template>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -373,14 +511,14 @@
     </div>
 
     <!-- 查無資料 -->
-    <div v-if="filteredPassengers.length === 0" class="no-print text-center py-16 bg-white rounded-2xl border text-slate-400 text-sm">
-      目前尚無可顯示的乘車名單，請確認已輸入正確 API 網址與金鑰並選擇行程。
+    <div v-if="filteredPassengers.length === 0" class="no-print text-center py-12 bg-white rounded-2xl border text-slate-500 text-sm mt-4">
+      目前尚無乘車名單資料（您仍可先勾選上方「📏 列印時印出對位框線與座標」用普通白紙測試 65 格對位）。
     </div>
 
   </div>
 
   <script>
-    const { createApp, ref, computed, onMounted, watch, nextTick } = Vue;
+    const { createApp, ref, computed, onMounted, watch } = Vue;
 
     createApp({
       setup() {
@@ -391,39 +529,94 @@
         const buses = ref([]);
         const selectedBus = ref("ALL");
         const passengers = ref([]);
-        const printMode = ref("badges");              // 預設開啟彩之舞 U4274JP-30 自己印模式
-        const stickerOrientation = ref("vertical");   // 'vertical' (直貼:上QR下姓名) | 'horizontal' (橫貼:左QR右姓名)
-        const marginPreset = ref("tight");            // 'tight' (無間距) | 'spaced' (有2.5mm水平間距)
-        const topMarginMm = ref(10.7);                // U4274JP-30 上邊界 (297 - 13*21.2)/2 = 10.7mm
-        const leftMarginMm = ref(9.75);               // U4274JP-30 左邊界 (210 - 5*38.1)/2 = 9.75mm
-        const colGapMm = ref(0);                      // 水平間距
-        const rowGapMm = ref(0);                      // 垂直間距
-        const skipSlots = ref(0);                     // 跳過前 N 格已撕除的空白貼紙
-        const showPrintBorder = ref(false);           // 列印時是否印出對位框線
-        const vendorCodeType = ref("id");             // 'id' (純流水碼) | 'token' (防偽碼)
-        const maskBadgeName = ref(true);              // 姓名中間以 O 代替
-        const copySuccessMsg = ref("");
+        const printMode = ref("badges");
+
+        // 讀取使用者儲存的校正參數 (預設套用掃描器實測校正值：上邊距 8.0mm、單格高 20.6mm)
+        const savedCalib = (() => {
+          try {
+            return JSON.parse(localStorage.getItem("U4274_CALIBRATION_V2") || "{}");
+          } catch (e) {
+            return {};
+          }
+        })();
+
+        const stickerOrientation = ref(savedCalib.stickerOrientation || "vertical");
+        const marginPreset = ref(savedCalib.marginPreset || "calibrated");
+        const topMarginMm = ref(typeof savedCalib.topMarginMm === "number" ? savedCalib.topMarginMm : 8.0);
+        const leftMarginMm = ref(typeof savedCalib.leftMarginMm === "number" ? savedCalib.leftMarginMm : 9.75);
+        const cellWidthMm = ref(typeof savedCalib.cellWidthMm === "number" ? savedCalib.cellWidthMm : 38.1);
+        const cellHeightMm = ref(typeof savedCalib.cellHeightMm === "number" ? savedCalib.cellHeightMm : 20.6);
+        const colGapMm = ref(typeof savedCalib.colGapMm === "number" ? savedCalib.colGapMm : 0);
+        const rowGapMm = ref(typeof savedCalib.rowGapMm === "number" ? savedCalib.rowGapMm : 0);
+        const qrSizeMm = ref(typeof savedCalib.qrSizeMm === "number" ? savedCalib.qrSizeMm : 15);
+        const skipSlots = ref(0);
+        const showPrintBorder = ref(false);
+        const vendorCodeType = ref("id");
+        const maskBadgeName = ref(true);
+        const qrDataUrls = ref({});
+
+        const saveCalibration = () => {
+          try {
+            localStorage.setItem("U4274_CALIBRATION_V2", JSON.stringify({
+              stickerOrientation: stickerOrientation.value,
+              marginPreset: marginPreset.value,
+              topMarginMm: Number(topMarginMm.value) || 0,
+              leftMarginMm: Number(leftMarginMm.value) || 0,
+              cellWidthMm: Number(cellWidthMm.value) || 38.1,
+              cellHeightMm: Number(cellHeightMm.value) || 20.6,
+              colGapMm: Number(colGapMm.value) || 0,
+              rowGapMm: Number(rowGapMm.value) || 0,
+              qrSizeMm: Number(qrSizeMm.value) || 15
+            }));
+          } catch (e) {}
+        };
 
         const applyMarginPreset = () => {
-          if (marginPreset.value === "tight") {
+          if (marginPreset.value === "calibrated") {
+            topMarginMm.value = 8.0;
+            leftMarginMm.value = 9.75;
+            cellWidthMm.value = 38.1;
+            cellHeightMm.value = 20.6;
+            colGapMm.value = 0;
+            rowGapMm.value = 0;
+          } else if (marginPreset.value === "tight") {
             topMarginMm.value = 10.7;
             leftMarginMm.value = 9.75;
+            cellWidthMm.value = 38.1;
+            cellHeightMm.value = 21.2;
             colGapMm.value = 0;
             rowGapMm.value = 0;
           } else {
             topMarginMm.value = 10.7;
             leftMarginMm.value = 4.75;
+            cellWidthMm.value = 38.1;
+            cellHeightMm.value = 21.2;
             colGapMm.value = 2.5;
             rowGapMm.value = 0;
           }
+          saveCalibration();
         };
 
-        const setStickerOrientation = (orient) => {
-          stickerOrientation.value = orient;
-          nextTick(() => renderQrs());
+        const applyScannerCalibratedPreset = () => {
+          marginPreset.value = "calibrated";
+          qrSizeMm.value = 15;
+          applyMarginPreset();
         };
 
-        // 將姓名中間字以 O 代替 (例如：王大明 -> 王O明、王明 -> 王O、歐陽菲菲 -> 歐OO菲)
+        const resetCalibration = () => {
+          marginPreset.value = "tight";
+          qrSizeMm.value = 15;
+          applyMarginPreset();
+        };
+
+        // 傻瓜方向平移微調按鈕 (dx: 左右平移mm, dy: 上下平移mm)
+        const nudgePosition = (dx, dy) => {
+          leftMarginMm.value = Math.round((Number(leftMarginMm.value) + dx) * 10) / 10;
+          topMarginMm.value = Math.round((Number(topMarginMm.value) + dy) * 10) / 10;
+          saveCalibration();
+        };
+
+        // 將姓名中間字以 O 代替
         const maskName = (rawName) => {
           if (!rawName) return "";
           const str = rawName.toString().trim();
@@ -441,7 +634,6 @@
           loadTrips();
         };
 
-        // 通用識別證 Token (不綁定特定 trip 或 bus，實現從頭用到尾)
         const generateClientToken = (id) => {
           const payloadObj = { id: id.toString().trim() };
           const payloadStr = JSON.stringify(payloadObj);
@@ -449,6 +641,33 @@
             .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
           const hmac = CryptoJS.HmacSHA256(payloadB64, secretKey.value).toString(CryptoJS.enc.Hex).substring(0, 16);
           return `E2E.${payloadB64}.${hmac}`;
+        };
+
+        // 同步將文字轉為單一靜態 PNG DataURL，徹底解決 qrcode.js 雙標籤與非同步延遲問題
+        const createQrDataUrl = (text) => {
+          const tempDiv = document.createElement("div");
+          new QRCode(tempDiv, {
+            text: text,
+            width: 200,
+            height: 200,
+            correctLevel: vendorCodeType.value === 'token' ? QRCode.CorrectLevel.M : QRCode.CorrectLevel.L
+          });
+          const canvas = tempDiv.querySelector("canvas");
+          if (canvas) {
+            return canvas.toDataURL("image/png");
+          }
+          const img = tempDiv.querySelector("img");
+          return img ? img.src : "";
+        };
+
+        const rebuildQrDataUrls = () => {
+          const map = {};
+          uniqueVendorList.value.forEach((item) => {
+            if (item.qrCodeText && !map[item.qrCodeText]) {
+              map[item.qrCodeText] = createQrDataUrl(item.qrCodeText);
+            }
+          });
+          qrDataUrls.value = map;
         };
 
         const loadTrips = async () => {
@@ -478,7 +697,7 @@
             if (data.success) {
               buses.value = data.buses || [];
               passengers.value = data.passengers || [];
-              nextTick(() => renderQrs());
+              rebuildQrDataUrls();
             }
           } catch (e) {
             console.error("載入資料失敗:", e);
@@ -508,8 +727,8 @@
           return list;
         });
 
-        // 將貼紙按每頁 65 格 (5欄 x 13列) 分頁，支援跳過前 skipSlots 格空白貼紙
-        const paginatedStickerPages = computed(() => {
+        // 將每頁 65 格切分為 13 列 × 5 欄的二維陣列，供固定 Table 渲染
+        const paginatedTableRows = computed(() => {
           const skip = Math.max(0, Math.min(64, Number(skipSlots.value) || 0));
           const allSlots = [];
           for (let i = 0; i < skip; i++) {
@@ -525,46 +744,40 @@
             });
           });
 
+          if (allSlots.length === 0) {
+            allSlots.push({ isEmpty: true });
+          }
+
           const pages = [];
-          for (let i = 0; i < allSlots.length; i += 65) {
-            const chunk = allSlots.slice(i, i + 65);
-            while (chunk.length < 65) {
-              chunk.push({ isEmpty: true });
+          for (let p = 0; p < allSlots.length; p += 65) {
+            const pageChunk = allSlots.slice(p, p + 65);
+            while (pageChunk.length < 65) {
+              pageChunk.push({ isEmpty: true });
             }
-            pages.push(chunk);
+            const rows = [];
+            for (let r = 0; r < 13; r++) {
+              rows.push(pageChunk.slice(r * 5, r * 5 + 5));
+            }
+            pages.push(rows);
           }
           return pages;
         });
 
-        // 渲染 1.5cm x 1.5cm QR Code (以低密度 21x21 + 160x160 畫布確保列印極度清晰)
-        const renderQrs = () => {
-          paginatedStickerPages.value.forEach((pageItems, pageIdx) => {
-            pageItems.forEach((slot, slotIdx) => {
-              if (!slot || slot.isEmpty) return;
-              const el = document.getElementById(`print-qr-p${pageIdx}-s${slotIdx}`);
-              if (el) {
-                el.replaceChildren();
-                new QRCode(el, {
-                  text: slot.qrCodeText,
-                  width: 160,
-                  height: 160,
-                  correctLevel: vendorCodeType.value === 'token' ? QRCode.CorrectLevel.M : QRCode.CorrectLevel.L
-                });
-              }
-            });
-          });
-        };
-
         const setPrintMode = (mode) => {
           printMode.value = mode;
-          if (mode === "badges") {
-            nextTick(() => renderQrs());
-          }
         };
 
         const onTripChange = () => {
           localStorage.setItem("BUS_SELECTED_TRIP", selectedTrip.value);
           loadTripData(selectedTrip.value);
+        };
+
+        // 直接觸發列印 (頁面已全面消除外層 margin 與非同步 canvas，列印預覽與螢幕 1:1 一致)
+        const triggerCleanPrint = () => {
+          rebuildQrDataUrls();
+          setTimeout(() => {
+            window.print();
+          }, 80);
         };
 
         const exportVendorCsv = () => {
@@ -587,22 +800,12 @@
           URL.revokeObjectURL(url);
         };
 
-        const copyVendorTable = async () => {
-          if (uniqueVendorList.value.length === 0) return;
-          const headerLine = "項次\tQR Code 流水碼\t印製姓名";
-          const lines = uniqueVendorList.value.map((item, idx) => `${idx + 1}\t${item.qrCodeText}\t${item.maskedName}`);
-          const textToCopy = [headerLine, ...lines].join("\n");
-          try {
-            await navigator.clipboard.writeText(textToCopy);
-            copySuccessMsg.value = "✅ 已複製！";
-            setTimeout(() => { copySuccessMsg.value = ""; }, 2500);
-          } catch (e) {
-            console.warn("複製失敗:", e);
-          }
-        };
+        watch([selectedBus, vendorCodeType], () => {
+          rebuildQrDataUrls();
+        });
 
-        watch([selectedBus, skipSlots, vendorCodeType], () => {
-          nextTick(() => renderQrs());
+        watch(stickerOrientation, () => {
+          saveCalibration();
         });
 
         onMounted(() => {
@@ -622,22 +825,28 @@
           marginPreset,
           topMarginMm,
           leftMarginMm,
+          cellWidthMm,
+          cellHeightMm,
           colGapMm,
           rowGapMm,
+          qrSizeMm,
           skipSlots,
           showPrintBorder,
+          qrDataUrls,
+          saveCalibration,
           applyMarginPreset,
-          setStickerOrientation,
+          applyScannerCalibratedPreset,
+          resetCalibration,
+          nudgePosition,
           vendorCodeType,
           maskBadgeName,
-          copySuccessMsg,
           maskName,
           setPrintMode,
           filteredPassengers,
           uniqueVendorList,
-          paginatedStickerPages,
+          paginatedTableRows,
+          triggerCleanPrint,
           exportVendorCsv,
-          copyVendorTable,
           saveSettings,
           onTripChange
         };
