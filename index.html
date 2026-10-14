@@ -694,7 +694,7 @@
                   <span class="font-bold text-indigo-950 text-[11px]">🎯 跑位一鍵平移校正 (1mm)：</span>
                   <div class="flex items-center gap-1">
                     <button type="button" @click="applyScannerCalibratedPreset" class="text-[10px] text-white bg-emerald-600 hover:bg-emerald-700 px-2 py-0.5 rounded shadow-xs font-bold">
-                      ✨ 套用掃描實測校正 (上8.0/高20.6)
+                      ✨ 套用雙向掃描實測校正 (上8.0/左4.3/欄距2.5/12排)
                     </button>
                     <button type="button" @click="resetCalibration" class="text-[10px] text-slate-600 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded border border-slate-300 font-bold">
                       🔄 官方預設
@@ -721,25 +721,25 @@
               <div class="flex items-center justify-between pt-1.5 border-t border-slate-100">
                 <span class="font-bold text-indigo-900 text-[11px]">📐 刀模邊距預設：</span>
                 <select v-model="marginPreset" @change="applyMarginPreset" class="bg-white border border-indigo-300 text-indigo-900 font-bold rounded-lg px-2 py-1 text-[11px]">
-                  <option value="calibrated">🎯 掃描器實測校正 (上8.0 / 單格高20.6 / 左9.75mm)</option>
-                  <option value="tight">預設 A：官方無間距 (上10.7 / 單格高21.2 / 左9.75mm)</option>
+                  <option value="calibrated">🎯 掃描實測校正 (上8.0 / 左4.3 / 欄距2.5 / 高20.6 / 跳過第13排)</option>
                   <option value="gapped">預設 B：有水平間距 (上10.7 / 左4.75 / 欄距2.5mm)</option>
+                  <option value="tight">預設 A：無水平間距 (上10.7 / 左9.75 / 欄距0mm)</option>
                 </select>
               </div>
 
-              <!-- 4. 精細毫米參數 (含單格寬高，解決越往下/越往右累積跑位) -->
-              <div class="grid grid-cols-3 gap-1.5 pt-1 text-[10px]">
+              <!-- 4. 精細毫米參數 (含單格寬高、水平間距與跳過最後一排) -->
+              <div class="grid grid-cols-3 sm:grid-cols-4 gap-1.5 pt-1 text-[10px]">
                 <div>
                   <label class="text-emerald-700 font-bold block">上邊距(實測8.0)</label>
                   <input type="number" step="0.1" v-model.number="topMarginMm" @change="saveCalibration" class="w-full px-1.5 py-1 border border-emerald-400 bg-emerald-50/40 rounded font-mono font-bold text-emerald-950" />
                 </div>
                 <div>
-                  <label class="text-slate-500 block">左邊距(mm)</label>
-                  <input type="number" step="0.1" v-model.number="leftMarginMm" @change="saveCalibration" class="w-full px-1.5 py-1 border border-slate-300 rounded font-mono font-bold text-slate-800" />
+                  <label class="text-emerald-700 font-bold block">左邊距(實測4.3)</label>
+                  <input type="number" step="0.1" v-model.number="leftMarginMm" @change="saveCalibration" class="w-full px-1.5 py-1 border border-emerald-400 bg-emerald-50/40 rounded font-mono font-bold text-emerald-950" />
                 </div>
                 <div>
-                  <label class="text-slate-500 block">水平間距(mm)</label>
-                  <input type="number" step="0.1" v-model.number="colGapMm" @change="saveCalibration" class="w-full px-1.5 py-1 border border-slate-300 rounded font-mono font-bold text-slate-800" />
+                  <label class="text-emerald-700 font-bold block">水平欄距(實測2.5)</label>
+                  <input type="number" step="0.1" v-model.number="colGapMm" @change="saveCalibration" class="w-full px-1.5 py-1 border border-emerald-400 bg-emerald-50/40 rounded font-mono font-bold text-emerald-950" />
                 </div>
                 <div>
                   <label class="text-indigo-700 font-bold block" title="若越往右越偏，請微調此值">單格寬(38.1mm)</label>
@@ -748,6 +748,14 @@
                 <div>
                   <label class="text-emerald-700 font-bold block" title="解決第1列準但第12列往下跑位">單格高(實測20.6)</label>
                   <input type="number" step="0.1" v-model.number="cellHeightMm" @change="saveCalibration" class="w-full px-1.5 py-1 border border-emerald-400 bg-emerald-50/40 rounded font-mono font-bold text-emerald-950" />
+                </div>
+                <div>
+                  <label class="text-rose-700 font-bold block" title="預設印12排(60格)，跳過底部超出印表機範圍的第13排">每頁印幾排(避底部裁切)</label>
+                  <select v-model.number="rowsPerPage" @change="saveCalibration" class="w-full px-1 py-1 border border-rose-400 bg-rose-50/50 rounded font-bold text-rose-900">
+                    <option :value="12">12排 (60格・跳過最後一排)</option>
+                    <option :value="13">13排 (65格・印滿整頁)</option>
+                    <option :value="11">11排 (55格・跳過最後兩排)</option>
+                  </select>
                 </div>
                 <div>
                   <label class="text-amber-800 font-bold block" title="跳過前面已撕除的空白格">跳過前N格</label>
@@ -778,7 +786,7 @@
             <div class="flex flex-wrap items-center gap-2 pt-1">
               <button @click="printBadges" class="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white font-bold py-2.5 px-4 rounded-xl shadow-md flex items-center justify-center space-x-2 transition">
                 <i data-lucide="printer" class="w-4 h-4"></i>
-                <span>🖨️ 立即列印 U4274JP-30 (共 {{ paginatedTableRows.length }} 頁 A4)</span>
+                <span>🖨️ 立即列印 U4274JP-30 (每頁 {{ rowsPerPage }} 排 / 共 {{ paginatedTableRows.length }} 頁)</span>
               </button>
               <a href="print_tickets.html" target="_blank" class="bg-white border border-indigo-300 hover:bg-indigo-100 text-indigo-700 font-bold py-2.5 px-3 rounded-xl flex items-center justify-center space-x-1 transition text-xs shadow-sm">
                 <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
@@ -787,7 +795,7 @@
             </div>
           </div>
 
-          <!-- A4 65格 (5 欄 × 13 列，每格 38.1mm × 21.2mm) 固定尺寸 Table 實體預覽與列印區 -->
+          <!-- A4 固定尺寸 Table 實體預覽與列印區 (預設印 12 排 = 60 格，跳過底部第 13 排) -->
           <div class="u4274-preview-scroll max-h-[65vh] overflow-auto custom-scroll p-2 bg-slate-300/70 rounded-2xl">
             <div
               v-for="(pageRows, pageIdx) in paginatedTableRows"
@@ -806,7 +814,7 @@
                 ◀━━ 100mm (10cm) 比例檢測尺：印出後若非 10cm 代表縮放未設 100% ━━▶
               </div>
 
-              <!-- 5 欄 × 13 列 固定尺寸 Table -->
+              <!-- 5 欄 × N 列 固定尺寸 Table -->
               <table class="u4274-sheet-table">
                 <tbody>
                   <template v-for="(rowSlots, rIdx) in pageRows" :key="'r-' + rIdx">
@@ -841,7 +849,7 @@
                             <!-- 排版 A：直貼轉向 (撕下貼紙順時針轉 90° 直貼 = 上方 1.5cm QR Code、下方水平姓名) -->
                             <div 
                               v-if="stickerOrientation === 'vertical'" 
-                              style="width: 100%; height: 100%; display: flex; flex-direction: row; align-items: center; justify-content: center; padding: 1mm 2mm; box-sizing: border-box; gap: 1.5mm;"
+                              style="width: 100%; height: 100%; display: flex; flex-direction: row; align-items: center; justify-content: center; padding: 1mm 1.5mm; box-sizing: border-box; gap: 2mm;"
                             >
                               <img 
                                 v-if="qrDataUrls[slot.qrCodeText]" 
@@ -850,7 +858,7 @@
                                 :style="{ width: qrSizeMm + 'mm', height: qrSizeMm + 'mm', transform: 'rotate(-90deg)' }"
                                 alt="QR"
                               />
-                              <div style="width: 14mm; height: 18mm; position: relative; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                              <div style="width: 9.5mm; height: 18mm; position: relative; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                                 <div style="width: 18mm; text-align: center; transform: rotate(-90deg); white-space: nowrap;">
                                   <div style="font-weight: 900; font-size: 11.5px; color: #0f172a; letter-spacing: 0.05em; line-height: 1.1;">
                                     {{ maskBadgeName ? maskName(slot.name) : slot.name }}
@@ -1147,10 +1155,10 @@
         const loading = ref(false);
         const currentTab = ref("scan");
 
-        // 彩之舞 U4274JP-30 (38.1 x 21.2 mm，A4 65格：5欄×13列) 自行列印與掃描實測校正狀態
+        // 彩之舞 U4274JP-30 (38.1 x 21.2 mm，A4 65格：5欄×13列) 自行列印與雙向掃描實測校正狀態
         const savedCalib = (() => {
           try {
-            return JSON.parse(localStorage.getItem("U4274_CALIBRATION_V2") || "{}");
+            return JSON.parse(localStorage.getItem("U4274_CALIBRATION_V3") || "{}");
           } catch (e) {
             return {};
           }
@@ -1162,12 +1170,13 @@
         const stickerOrientation = ref(savedCalib.stickerOrientation || "vertical");
         const marginPreset = ref(savedCalib.marginPreset || "calibrated");
         const topMarginMm = ref(typeof savedCalib.topMarginMm === "number" ? savedCalib.topMarginMm : 8.0);
-        const leftMarginMm = ref(typeof savedCalib.leftMarginMm === "number" ? savedCalib.leftMarginMm : 9.75);
+        const leftMarginMm = ref(typeof savedCalib.leftMarginMm === "number" ? savedCalib.leftMarginMm : 4.3);
         const cellWidthMm = ref(typeof savedCalib.cellWidthMm === "number" ? savedCalib.cellWidthMm : 38.1);
         const cellHeightMm = ref(typeof savedCalib.cellHeightMm === "number" ? savedCalib.cellHeightMm : 20.6);
-        const colGapMm = ref(typeof savedCalib.colGapMm === "number" ? savedCalib.colGapMm : 0);
+        const colGapMm = ref(typeof savedCalib.colGapMm === "number" ? savedCalib.colGapMm : 2.5);
         const rowGapMm = ref(typeof savedCalib.rowGapMm === "number" ? savedCalib.rowGapMm : 0);
         const qrSizeMm = ref(typeof savedCalib.qrSizeMm === "number" ? savedCalib.qrSizeMm : 15);
+        const rowsPerPage = ref(typeof savedCalib.rowsPerPage === "number" ? savedCalib.rowsPerPage : 12);
         const skipSlots = ref(0);
         const showPrintBorder = ref(false);
         const qrDataUrls = ref({});
@@ -1816,7 +1825,9 @@
             });
           });
 
-          const skip = Math.max(0, Math.min(64, Number(skipSlots.value) || 0));
+          const activeRows = Math.max(1, Math.min(13, Number(rowsPerPage.value) || 12));
+          const slotsPerPage = activeRows * 5;
+          const skip = Math.max(0, Math.min(slotsPerPage - 1, Number(skipSlots.value) || 0));
           const allSlots = [
             ...Array(skip).fill({ isEmpty: true }),
             ...uniqueItems
@@ -1827,13 +1838,13 @@
           }
 
           const pages = [];
-          for (let i = 0; i < allSlots.length; i += 65) {
-            const pageChunk = allSlots.slice(i, i + 65);
-            while (pageChunk.length < 65) {
+          for (let i = 0; i < allSlots.length; i += slotsPerPage) {
+            const pageChunk = allSlots.slice(i, i + slotsPerPage);
+            while (pageChunk.length < slotsPerPage) {
               pageChunk.push({ isEmpty: true });
             }
             const rows = [];
-            for (let r = 0; r < 13; r++) {
+            for (let r = 0; r < activeRows; r++) {
               rows.push(pageChunk.slice(r * 5, r * 5 + 5));
             }
             pages.push(rows);
@@ -1843,7 +1854,7 @@
 
         const saveCalibration = () => {
           try {
-            localStorage.setItem("U4274_CALIBRATION_V2", JSON.stringify({
+            localStorage.setItem("U4274_CALIBRATION_V3", JSON.stringify({
               stickerOrientation: stickerOrientation.value,
               marginPreset: marginPreset.value,
               topMarginMm: Number(topMarginMm.value) || 0,
@@ -1852,7 +1863,8 @@
               cellHeightMm: Number(cellHeightMm.value) || 20.6,
               colGapMm: Number(colGapMm.value) || 0,
               rowGapMm: Number(rowGapMm.value) || 0,
-              qrSizeMm: Number(qrSizeMm.value) || 15
+              qrSizeMm: Number(qrSizeMm.value) || 15,
+              rowsPerPage: Number(rowsPerPage.value) || 12
             }));
           } catch (e) {}
         };
@@ -1860,11 +1872,12 @@
         const applyMarginPreset = () => {
           if (marginPreset.value === 'calibrated') {
             topMarginMm.value = 8.0;
-            leftMarginMm.value = 9.75;
+            leftMarginMm.value = 4.3;
             cellWidthMm.value = 38.1;
             cellHeightMm.value = 20.6;
-            colGapMm.value = 0;
+            colGapMm.value = 2.5;
             rowGapMm.value = 0;
+            rowsPerPage.value = 12;
           } else if (marginPreset.value === 'tight') {
             topMarginMm.value = 10.7;
             leftMarginMm.value = 9.75;
@@ -2098,6 +2111,7 @@
           colGapMm,
           rowGapMm,
           qrSizeMm,
+          rowsPerPage,
           skipSlots,
           showPrintBorder,
           qrDataUrls,
