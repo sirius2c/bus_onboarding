@@ -525,7 +525,8 @@
                   <span v-if="p.seat" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">座: {{ p.seat }}</span>
                 </div>
                 <div class="text-[11px] text-slate-400 mt-0.5 flex items-center space-x-2">
-                  <span class="font-mono">#{{ p.id }}</span>
+                  <span class="font-mono text-indigo-600 font-bold">貼紙 #{{ p.unifiedId || p.id }}</span>
+                  <span v-if="p.unifiedId && p.id && p.unifiedId !== p.id" class="font-mono text-[10px] text-slate-400">(原表 #{{ p.id }})</span>
                   <span v-if="p.status === '已上車'" class="text-emerald-600 font-medium">🕒 {{ p.boardingTime || '已上車' }}</span>
                 </div>
               </div>
@@ -541,6 +542,50 @@
 
       <!-- ================= 頁籤 3: 彩之舞 U4274JP-30 (38.1×21.2mm) 貼紙自行列印 & 廠商表單 ================= -->
       <div v-show="currentTab === 'tickets'" class="space-y-3">
+        <!-- 🌟 跨行程「一人一碼」總名單自動合併與補印差額控制盒 -->
+        <div class="no-print bg-emerald-50 border-2 border-emerald-300 p-3 rounded-2xl text-emerald-950 text-xs shadow-xs space-y-2">
+          <div class="flex items-center justify-between flex-wrap gap-1.5">
+            <span class="font-black text-emerald-900 flex items-center gap-1">
+              <span>🌟 一人一碼・跨行程通用總名單</span>
+              <span class="bg-emerald-600 text-white text-[10px] px-2 py-0.5 rounded-full">
+                共 {{ masterRosterStats.totalUnique }} 人 ({{ masterRosterStats.baseTripName || '回程' }} {{ masterRosterStats.baseCount }} 人 + 差額 {{ masterRosterStats.diffCount }} 人)
+              </span>
+            </span>
+            <button
+              type="button"
+              @click="syncUnifiedIdsToSheet"
+              :disabled="syncingSheetIds"
+              class="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold rounded-lg text-[11px] shadow-xs transition"
+            >
+              {{ syncingSheetIds ? '⏳ 同步中...' : '🔗 一鍵統一試算表各分頁編號' }}
+            </button>
+          </div>
+          <p class="text-[11px] text-emerald-800 leading-relaxed">
+            已自動合併 <strong>[{{ trips.join(' + ') || '所有行程' }}]</strong> 並保留「{{ masterRosterStats.baseTripName || '回程' }}」編號（#1~#{{ masterRosterStats.baseCount }}）：<strong>您先前印好的回程貼紙可直接用於去程掃碼！</strong>若只需補印「不在{{ masterRosterStats.baseTripName || '回程' }}內的人員」，請點下方「➕ 僅印差額補印」。
+          </p>
+          <div v-if="syncStatusMsg" class="p-2 rounded-lg bg-white border border-emerald-300 text-emerald-800 font-bold text-[11px]">
+            {{ syncStatusMsg }}
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+            <div>
+              <label class="font-bold text-emerald-900 block mb-0.5 text-[11px]">📌 列印名單範圍 (一人一碼)：</label>
+              <select v-model="ticketPrintScope" @change="renderAllLocalQrCodes" class="w-full p-1.5 border border-emerald-400 rounded-lg bg-white font-bold text-emerald-950 text-[11px]">
+                <option value="ALL_MERGED">🌟 全部行程合併總名單 (共 {{ masterRosterStats.totalUnique }} 人・一人一碼)</option>
+                <option v-if="masterRosterStats.diffCount > 0" value="DIFF_ONLY">➕ 僅印差額補印 (不在{{ masterRosterStats.baseTripName }}的 {{ masterRosterStats.diffCount }} 人)</option>
+                <option value="CURRENT_TRIP">📄 僅目前選擇分頁 ({{ selectedTrip }})</option>
+              </select>
+            </div>
+            <div>
+              <label class="font-bold text-indigo-900 block mb-0.5 text-[11px]">🔢 QR Code 條碼格式：</label>
+              <select v-model="vendorCodeType" @change="renderAllLocalQrCodes" class="w-full p-1.5 border border-indigo-300 rounded-lg bg-white font-bold text-indigo-950 text-[11px]">
+                <option value="id">🔢 跨行程統一流水碼 (相容已印貼紙・推薦)</option>
+                <option value="universal">🌟 姓名綁定永久通用碼 (Nxxxxxx)</option>
+                <option value="token">🔒 E2EE 防偽加密碼 (E2E...)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
         <!-- 子模式切換：1. 自己印：彩之舞 U4274JP-30 (38.1×21.2mm 65格) / 2. 廠商貼紙表單 -->
         <div class="no-print flex bg-indigo-100/80 p-1 rounded-xl text-xs font-bold text-indigo-900 border border-indigo-200">
           <button 
@@ -577,15 +622,6 @@
                   僅列出<strong>「QR Code 流水碼」與「對應遮罩姓名（如：王O明）」</strong>，也可匯出 CSV 作為標籤排版軟體資料來源。
                 </p>
               </div>
-            </div>
-
-            <!-- 流水碼格式選擇 -->
-            <div class="flex items-center justify-between bg-white/80 px-3 py-2 rounded-xl border border-emerald-200/80 text-[11px]">
-              <span class="font-bold text-emerald-900">QR Code 條碼格式：</span>
-              <select v-model="vendorCodeType" @change="renderAllLocalQrCodes" class="bg-white border border-emerald-300 text-emerald-900 font-bold rounded-lg px-2 py-1 text-[11px] focus:outline-none">
-                <option value="id">純流水碼 (如 A001，1.5cm 極速秒掃・推薦)</option>
-                <option value="token">E2EE 防偽加密流水碼 (E2E...)</option>
-              </select>
             </div>
 
             <!-- 匯出與列印按鈕列 -->
@@ -636,7 +672,7 @@
           </div>
         </div>
 
-        <!-- 子模式 B：彩之舞 U4274JP-30 (38.1 × 21.2 mm，A4 65格：5欄×13列) 貼紙自行列印與跑位校正 -->
+        <!-- 子模式 B：彩之舞 U4274JP-30 (38.1 × 21.2 mm) 貼紙自行列印與跑位校正 -->
         <div v-show="ticketSubMode === 'badges'" class="space-y-3">
           <!-- 頂部設定與跑位校正面板 (列印時自動隱藏) -->
           <div class="no-print bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-200 p-3.5 rounded-2xl text-indigo-950 text-xs shadow-sm space-y-2.5">
@@ -646,11 +682,11 @@
               </div>
               <div class="flex-1">
                 <div class="flex items-center flex-wrap gap-1.5">
-                  <span class="font-black text-sm text-indigo-900">彩之舞 U4274JP-30 專用列印与跑位校正</span>
-                  <span class="text-[9px] bg-emerald-600 text-white font-bold px-1.5 py-0.2 rounded-full shadow-sm">A4 65格 (5×13)</span>
+                  <span class="font-black text-sm text-indigo-900">彩之舞 U4274JP-30 專用列印與跑位校正</span>
+                  <span class="text-[9px] bg-emerald-600 text-white font-bold px-1.5 py-0.2 rounded-full shadow-sm">每頁 {{ rowsPerPage }} 排 ({{ rowsPerPage * 5 }}格・跳過第13排)</span>
                 </div>
                 <p class="text-[11px] text-indigo-800/90 mt-1 leading-relaxed">
-                  已採用<strong>「固定表格 (Table Fixed) ＋ 靜態影像」</strong>技術，解決點選列印時跳動跑版的問題，並內建<strong>上下左右平移與單格寬高校正器</strong>。
+                  已採用<strong>「固定表格 (Table Fixed) ＋ 靜態影像」</strong>技術，預設<strong>每頁只印前 12 排 (60格)</strong> 自動避開底部第 13 排不可列印區。
                 </p>
               </div>
             </div>
@@ -873,7 +909,7 @@
                             <!-- 排版 B：橫貼標準 (不旋轉，左方 1.5cm QR Code ＋ 右方橫向姓名) -->
                             <div 
                               v-else-if="stickerOrientation === 'horizontal'" 
-                              style="width: 100%; height: 100%; display: flex; flex-direction: row; align-items: center; justify-content: flex-start; padding: 1mm 2mm 1mm 2.5mm; box-sizing: border-box; gap: 2mm;"
+                              style="width: 100%; height: 100%; display: flex; flex-direction: row; align-items: center; justify-content: center; padding: 1mm 2mm; box-sizing: border-box; gap: 2mm;"
                             >
                               <img 
                                 v-if="qrDataUrls[slot.qrCodeText]" 
@@ -915,6 +951,15 @@
                   </template>
                 </tbody>
               </table>
+
+              <!-- 螢幕預覽時顯示「第 13 排已自動跳過不印」提示條 (列印時完全隱藏不佔位) -->
+              <div 
+                v-if="rowsPerPage < 13" 
+                class="no-print"
+                style="width: 200.5mm; height: 18mm; margin-top: 1mm; border: 1.5px dashed #f43f5e; background: #fff1f2; color: #be123c; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 900;"
+              >
+                🚫 第 13 排（最後一排 5 格）已自動跳過不印 — 第 {{ (pageIdx + 1) * rowsPerPage * 5 + 1 }} 號起已自動換到下一頁第 1 排
+              </div>
             </div>
           </div>
         </div>
@@ -1152,19 +1197,23 @@
         const buses = ref([]);
         const selectedBus = ref("ALL");
         const passengers = ref([]);
+        const allTripsPassengersMap = ref({});
+        const syncingSheetIds = ref(false);
+        const syncStatusMsg = ref("");
+        const ticketPrintScope = ref("ALL_MERGED"); // 'ALL_MERGED' | 'DIFF_ONLY' | 'CURRENT_TRIP'
         const loading = ref(false);
         const currentTab = ref("scan");
 
         // 彩之舞 U4274JP-30 (38.1 x 21.2 mm，A4 65格：5欄×13列) 自行列印與雙向掃描實測校正狀態
         const savedCalib = (() => {
           try {
-            return JSON.parse(localStorage.getItem("U4274_CALIBRATION_V3") || "{}");
+            return JSON.parse(localStorage.getItem("U4274_CALIBRATION_V4") || "{}");
           } catch (e) {
             return {};
           }
         })();
         const ticketSubMode = ref("badges"); // 預設顯示「自己印 38.1×21.2mm (U4274JP)」
-        const vendorCodeType = ref("id");    // 'id' (純流水碼) | 'token' (E2EE 防偽碼)
+        const vendorCodeType = ref("id");    // 'id' (跨行程統一流水碼) | 'universal' (姓名綁定永久通用碼) | 'token' (E2EE 防偽碼)
         const maskBadgeName = ref(true);     // 姓名中間以 O 代替
         const copySuccessMsg = ref("");
         const stickerOrientation = ref(savedCalib.stickerOrientation || "vertical");
@@ -1258,10 +1307,20 @@
           }
         };
 
+        // 根據「姓名」計算跨行程永久不變的 7 碼 ASCII 專屬條碼 (例如：N8F3A2B)
+        const getPersonUniversalCode = (rawName, fallbackId = "") => {
+          const cleanName = (rawName || "").toString().trim();
+          if (!cleanName) return fallbackId.toString().trim();
+          const hashHex = CryptoJS.SHA256("PERSON_QR_V1:" + cleanName).toString(CryptoJS.enc.Hex).toUpperCase();
+          return "N" + hashHex.substring(0, 6);
+        };
+
         // ================= E2EE 本地防偽 Token 計算與驗證 =================
-        const generateClientToken = (id) => {
-          // 通用識別證：只綁定人員 ID 與數位簽章，不綁定特定 trip 或 bus，實現「從頭用到尾」
-          const payloadStr = JSON.stringify({ id: id.toString().trim() });
+        const generateClientToken = (id, name = "") => {
+          // 通用識別證：同時綁定統一編號與姓名，實現「一人一碼・跨車程與跨車次通用」
+          const payloadObj = { id: id.toString().trim() };
+          if (name) payloadObj.name = name.toString().trim();
+          const payloadStr = JSON.stringify(payloadObj);
           const payloadB64 = CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(payloadStr))
             .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
           const hmac = CryptoJS.HmacSHA256(payloadB64, secretKey.value).toString(CryptoJS.enc.Hex).substring(0, 16);
@@ -1270,17 +1329,17 @@
 
         const verifyClientToken = (tokenStr) => {
           if (!tokenStr || !tokenStr.startsWith("E2E.")) {
-            return { isToken: false, valid: false, id: tokenStr };
+            return { isToken: false, valid: false, id: tokenStr, name: "" };
           }
           const parts = tokenStr.split(".");
-          if (parts.length !== 3) return { isToken: true, valid: false, id: null };
+          if (parts.length !== 3) return { isToken: true, valid: false, id: null, name: "" };
 
           const payloadB64 = parts[1];
           const givenSign = parts[2];
           const expectedSign = CryptoJS.HmacSHA256(payloadB64, secretKey.value).toString(CryptoJS.enc.Hex).substring(0, 16);
 
           if (givenSign !== expectedSign) {
-            return { isToken: true, valid: false, id: null };
+            return { isToken: true, valid: false, id: null, name: "" };
           }
 
           try {
@@ -1289,16 +1348,133 @@
             while (b64.length % 4) b64 += '=';
             const jsonStr = CryptoJS.enc.Utf8.stringify(CryptoJS.enc.Base64.parse(b64));
             const payload = JSON.parse(jsonStr);
-            return { isToken: true, valid: true, id: payload.id, payload: payload };
+            return { isToken: true, valid: true, id: payload.id, name: payload.name || "", payload: payload };
           } catch (e) {
-            return { isToken: true, valid: false, id: null };
+            return { isToken: true, valid: false, id: null, name: "" };
           }
         };
 
+        // ================= 🌟 跨行程「一人一碼」總名單合併與對照引擎 =================
+        // 優先以含「回程」的分頁作為第一基準編號 (#1~#65)，讓使用者先前已印出的回程貼紙 100% 繼續有效，
+        // 並將「只搭去程 (不在回程)」的人員自動編為 #66, #67...
+        const crossTripMasterData = computed(() => {
+          const tripNames = trips.value || [];
+          const map = allTripsPassengersMap.value || {};
+          const sortedTrips = tripNames.slice().sort((a, b) => {
+            const aRet = a.includes("回程") ? 0 : 1;
+            const bRet = b.includes("回程") ? 0 : 1;
+            return aRet - bRet;
+          });
+
+          const baseTripName = sortedTrips[0] || "";
+          const nameToPerson = {};
+          const unifiedIdToPerson = {};
+          const universalCodeToPerson = {};
+          const usedIds = new Set();
+          const masterList = [];
+          const diffOnlyList = [];
+          let maxNumericId = 0;
+
+          if (baseTripName && map[baseTripName]) {
+            map[baseTripName].forEach((p, idx) => {
+              const rawId = (p.id && p.id.toString().trim()) ? p.id.toString().trim() : String(idx + 1);
+              const num = parseInt(rawId.replace(/^P0*/i, ""), 10);
+              if (!isNaN(num) && num > maxNumericId) {
+                maxNumericId = num;
+              }
+            });
+          }
+
+          sortedTrips.forEach((tName, tIdx) => {
+            const list = map[tName] || [];
+            list.forEach((p, idx) => {
+              const cleanName = (p.name || "").toString().trim();
+              const rawId = (p.id && p.id.toString().trim()) ? p.id.toString().trim() : String(idx + 1);
+              if (!cleanName && !rawId) return;
+
+              const key = cleanName || (`__ID_${rawId}`);
+              if (!nameToPerson[key]) {
+                let unifiedId = rawId;
+                if (!unifiedId || usedIds.has(unifiedId)) {
+                  maxNumericId++;
+                  unifiedId = String(maxNumericId);
+                  while (usedIds.has(unifiedId)) {
+                    maxNumericId++;
+                    unifiedId = String(maxNumericId);
+                  }
+                } else {
+                  const num = parseInt(unifiedId.replace(/^P0*/i, ""), 10);
+                  if (!isNaN(num) && num > maxNumericId) {
+                    maxNumericId = num;
+                  }
+                }
+                usedIds.add(unifiedId);
+
+                const univCode = getPersonUniversalCode(cleanName, unifiedId);
+                const personObj = {
+                  id: unifiedId,
+                  unifiedId: unifiedId,
+                  universalCode: univCode,
+                  name: cleanName,
+                  bus: p.bus || "",
+                  seat: p.seat || "",
+                  tripsJoined: [tName],
+                  isFromBaseTrip: tIdx === 0
+                };
+                nameToPerson[key] = personObj;
+                unifiedIdToPerson[unifiedId] = personObj;
+                if (univCode) universalCodeToPerson[univCode] = personObj;
+                masterList.push(personObj);
+                if (tIdx > 0) {
+                  diffOnlyList.push(personObj);
+                }
+              } else {
+                const existing = nameToPerson[key];
+                if (!existing.tripsJoined.includes(tName)) {
+                  existing.tripsJoined.push(tName);
+                }
+              }
+            });
+          });
+
+          return {
+            baseTripName,
+            baseCount: masterList.filter(p => p.isFromBaseTrip).length,
+            diffCount: diffOnlyList.length,
+            totalUnique: masterList.length,
+            masterList,
+            diffOnlyList,
+            nameToPerson,
+            unifiedIdToPerson,
+            universalCodeToPerson
+          };
+        });
+
+        const masterRosterStats = computed(() => ({
+          baseTripName: crossTripMasterData.value.baseTripName,
+          baseCount: crossTripMasterData.value.baseCount,
+          diffCount: crossTripMasterData.value.diffCount,
+          totalUnique: crossTripMasterData.value.totalUnique
+        }));
+
         // ================= 資料計算 =================
+        const enrichedPassengers = computed(() => {
+          const nameMap = crossTripMasterData.value.nameToPerson || {};
+          return passengers.value.map((p, idx) => {
+            const cleanName = (p.name || "").toString().trim();
+            const masterEntry = nameMap[cleanName];
+            const unifiedId = masterEntry ? masterEntry.unifiedId : ((p.id && p.id.toString().trim()) || String(idx + 1));
+            const universalCode = masterEntry ? masterEntry.universalCode : getPersonUniversalCode(cleanName, unifiedId);
+            return Object.assign(p, {
+              unifiedId,
+              universalCode
+            });
+          });
+        });
+
         const filteredPassengers = computed(() => {
-          if (selectedBus.value === "ALL") return passengers.value;
-          return passengers.value.filter(p => p.bus === selectedBus.value);
+          if (selectedBus.value === "ALL") return enrichedPassengers.value;
+          return enrichedPassengers.value.filter(p => p.bus === selectedBus.value);
         });
 
         const unboardedCount = computed(() => filteredPassengers.value.filter(p => p.status !== "已上車").length);
@@ -1320,8 +1496,10 @@
           if (searchKeyword.value.trim()) {
             const kw = searchKeyword.value.toLowerCase().trim();
             list = list.filter(p => 
-              p.name.toLowerCase().includes(kw) || 
-              p.id.toLowerCase().includes(kw) || 
+              (p.name && p.name.toLowerCase().includes(kw)) || 
+              (p.id && p.id.toLowerCase().includes(kw)) || 
+              (p.unifiedId && p.unifiedId.toLowerCase().includes(kw)) ||
+              (p.universalCode && p.universalCode.toLowerCase().includes(kw)) ||
               (p.bus && p.bus.toLowerCase().includes(kw)) ||
               (p.seat && p.seat.toString().toLowerCase().includes(kw))
             );
@@ -1362,6 +1540,84 @@
         });
 
         // ================= API 串接與資料載入 =================
+        // 背景載入所有行程分頁以建立「一人一碼」跨行程總表
+        const fetchAllTripsForMasterRoster = async (tripList) => {
+          if (!tripList || tripList.length === 0) return;
+
+          if (typeof google !== 'undefined' && google.script && google.script.run) {
+            tripList.forEach((tName) => {
+              google.script.run
+                .withSuccessHandler((data) => {
+                  if (data && data.success) {
+                    allTripsPassengersMap.value = {
+                      ...allTripsPassengersMap.value,
+                      [tName]: data.passengers || []
+                    };
+                    if (currentTab.value === "tickets") {
+                      nextTick(() => renderAllLocalQrCodes());
+                    }
+                  }
+                })
+                .apiGetTripData(tName);
+            });
+            return;
+          }
+
+          if (!apiUrl.value) return;
+          const newMap = { ...allTripsPassengersMap.value };
+          await Promise.all(tripList.map(async (tName) => {
+            try {
+              const res = await fetch(`${apiUrl.value}?action=getTripData&trip=${encodeURIComponent(tName)}&apiKey=${encodeURIComponent(secretKey.value)}&_t=${Date.now()}`);
+              const data = await res.json();
+              if (data && data.success) {
+                newMap[tName] = data.passengers || [];
+              }
+            } catch (e) {
+              console.warn("背景載入分頁失敗:", tName, e);
+            }
+          }));
+          allTripsPassengersMap.value = newMap;
+          if (currentTab.value === "tickets") {
+            nextTick(() => renderAllLocalQrCodes());
+          }
+        };
+
+        const syncUnifiedIdsToSheet = async () => {
+          syncingSheetIds.value = true;
+          syncStatusMsg.value = "";
+          if (typeof google !== 'undefined' && google.script && google.script.run) {
+            google.script.run
+              .withSuccessHandler((res) => {
+                syncingSheetIds.value = false;
+                if (res && res.success) {
+                  syncStatusMsg.value = `✅ 已成功統一試算表各分頁編號（共 ${res.totalUnique} 人，更新 ${res.updatedCells} 格）！`;
+                  fetchTrips();
+                }
+              })
+              .withFailureHandler(() => {
+                syncingSheetIds.value = false;
+              })
+              .apiUnifyAllSheetsIds();
+            return;
+          }
+          if (!apiUrl.value) {
+            syncingSheetIds.value = false;
+            return;
+          }
+          try {
+            const res = await fetch(`${apiUrl.value}?action=unifyAllSheetsIds&apiKey=${encodeURIComponent(secretKey.value)}&_t=${Date.now()}`);
+            const data = await res.json();
+            if (data && data.success) {
+              syncStatusMsg.value = `✅ 已成功統一試算表各分頁編號（共 ${data.totalUnique} 人，更新 ${data.updatedCells} 格）！`;
+              await fetchTrips();
+            }
+          } catch (e) {
+            console.warn("同步編號請求完成或需重新部署後端:", e);
+          } finally {
+            syncingSheetIds.value = false;
+          }
+        };
+
         const fetchTrips = async () => {
           loading.value = true;
           connectionError.value = null;
@@ -1380,6 +1636,7 @@
                   if (selectedTrip.value) {
                     fetchTripData(selectedTrip.value);
                   }
+                  fetchAllTripsForMasterRoster(trips.value);
                 }
               })
               .withFailureHandler((err) => {
@@ -1415,14 +1672,12 @@
               if (selectedTrip.value) {
                 await fetchTripData(selectedTrip.value);
               }
+              fetchAllTripsForMasterRoster(trips.value);
             } else {
               connectionError.value = {
                 title: "後端回傳錯誤",
                 message: data.message || "未能成功取得行程分頁名單。"
               };
-              if (data.code === "UNAUTHORIZED") {
-                alert(data.message);
-              }
             }
           } catch (e) {
             console.error("載入行程失敗:", e);
@@ -1447,6 +1702,10 @@
                 if (data && data.success) {
                   buses.value = data.buses || [];
                   passengers.value = data.passengers || [];
+                  allTripsPassengersMap.value = {
+                    ...allTripsPassengersMap.value,
+                    [tripName]: data.passengers || []
+                  };
                   if (selectedBus.value !== "ALL" && !buses.value.includes(selectedBus.value)) {
                     selectedBus.value = "ALL";
                   }
@@ -1469,11 +1728,15 @@
             return;
           }
           try {
-            const res = await fetch(`${apiUrl.value}?action=getTripData&trip=${encodeURIComponent(tripName)}&apiKey=${encodeURIComponent(secretKey.value)}`);
+            const res = await fetch(`${apiUrl.value}?action=getTripData&trip=${encodeURIComponent(tripName)}&apiKey=${encodeURIComponent(secretKey.value)}&_t=${Date.now()}`);
             const data = await res.json();
             if (data.success) {
               buses.value = data.buses || [];
               passengers.value = data.passengers || [];
+              allTripsPassengersMap.value = {
+                ...allTripsPassengersMap.value,
+                [tripName]: data.passengers || []
+              };
               if (selectedBus.value !== "ALL" && !buses.value.includes(selectedBus.value)) {
                 selectedBus.value = "ALL";
               }
@@ -1497,7 +1760,7 @@
           await fetchTrips();
         };
 
-        // ================= 掃碼核銷處理 (含 E2EE 防偽驗證) =================
+        // ================= 掃碼核銷處理 (支援跨行程一人一碼、已印回程貼紙相容與 E2EE 驗證) =================
         const handleBarcodeCheckIn = async (rawCode) => {
           if (!rawCode || !selectedTrip.value) return;
           const cleanCode = rawCode.toString().trim();
@@ -1517,9 +1780,44 @@
           }
 
           const targetId = tokenVerify.isToken ? tokenVerify.id : cleanCode;
+          const tokenName = tokenVerify.isToken ? (tokenVerify.name || "") : "";
 
-          // 2. 本地快速查找
-          const target = passengers.value.find(p => p.id === targetId);
+          // 2. 跨行程「一人一碼」智慧解析：
+          // 先從跨行程總表反查此條碼（不論是回程貼紙流水號 #1~#65、差額流水號 #66+、或姓名綁定碼 Nxxxxxx）對應的「真實姓名」
+          const masterData = crossTripMasterData.value;
+          const resolvedMasterPerson =
+            (tokenName && masterData.nameToPerson[tokenName]) ||
+            masterData.universalCodeToPerson[targetId] ||
+            masterData.unifiedIdToPerson[targetId] ||
+            null;
+
+          let target = null;
+          if (resolvedMasterPerson && resolvedMasterPerson.name) {
+            // 以解析出的「真實姓名」在當前行程 (如：去程) 中尋找該人員，徹底避免因去回程列數不同而對應錯人！
+            target = enrichedPassengers.value.find(
+              p => (p.name || "").toString().trim() === resolvedMasterPerson.name
+            );
+
+            // 若此人在總名單中（例如只搭回程），但不在目前點名的行程（例如去程）名單內：
+            if (!target) {
+              playBeep("error");
+              triggerVibration([200, 100, 200]);
+              lastScanResult.value = {
+                code: "NOT_FOUND",
+                message: `【非本趟乘客】${resolvedMasterPerson.name} (貼紙 #${resolvedMasterPerson.unifiedId}) 不在「${selectedTrip.value}」名單中（僅搭乘：${resolvedMasterPerson.tripsJoined.join('、')}）！`,
+                time: timeNowStr
+              };
+              return;
+            }
+          } else {
+            // 備援查找：直接比對姓名綁定碼、姓名、統一編號或原始編號
+            target = enrichedPassengers.value.find(p =>
+              p.universalCode === targetId ||
+              (p.name && p.name.toString().trim() === targetId) ||
+              p.unifiedId === targetId ||
+              p.id === targetId
+            );
+          }
 
           if (!target) {
             playBeep("error");
@@ -1540,7 +1838,7 @@
             lastScanResult.value = {
               code: "WRONG_BUS",
               passenger: target,
-              message: `【車次不符】此人分配在「${target.bus}」，當前點名為「${selectedBus.value}」！`,
+              message: `【車次不符】${target.name} 分配在「${target.bus}」，當前點名為「${selectedBus.value}」！`,
               time: timeNowStr
             };
             return;
@@ -1568,15 +1866,20 @@
           lastScanResult.value = {
             code: "SUCCESS",
             passenger: target,
-            message: `【登車成功】歡迎搭乘！(E2EE 驗證通過)`,
+            message: `【登車成功】歡迎 ${target.name} 搭乘！(跨行程一人一碼核銷通過)`,
             time: timeNowStr
           };
 
           // 4. 背景送回 Google 進行核銷記錄
+          // 關鍵：傳送該人員在「當前分頁」的真實 row ID (target.id) 與姓名 (target.name)，
+          // 確保即使去程與回程在試算表中的列號不同，後端也會 100% 精準核銷正確的人！
+          const sheetRowBarcode = (target.id && target.id.toString().trim()) ? target.id.toString().trim() : targetId;
+          const targetCleanName = (target.name || "").toString().trim();
+
           if (typeof google !== 'undefined' && google.script && google.script.run) {
             google.script.run
               .withFailureHandler((err) => console.error("背景核銷出錯:", err))
-              .apiCheckIn(selectedTrip.value, selectedBus.value, cleanCode);
+              .apiCheckIn(selectedTrip.value, selectedBus.value, sheetRowBarcode, targetCleanName);
           } else if (apiUrl.value) {
             try {
               fetch(apiUrl.value, {
@@ -1588,7 +1891,8 @@
                   apiKey: secretKey.value,
                   trip: selectedTrip.value,
                   bus: selectedBus.value,
-                  barcode: cleanCode
+                  barcode: sheetRowBarcode,
+                  passengerName: targetCleanName
                 })
               }).catch(err => console.error("背景同步回寫出錯:", err));
             } catch (e) {
@@ -1610,10 +1914,11 @@
 
           if (newStatus === "已上車") playBeep("success");
 
+          const cleanName = (p.name || "").toString().trim();
           if (typeof google !== 'undefined' && google.script && google.script.run) {
             google.script.run
               .withFailureHandler((e) => console.error(e))
-              .apiToggleStatus(selectedTrip.value, p.id, newStatus);
+              .apiToggleStatus(selectedTrip.value, p.id, newStatus, cleanName);
           } else if (apiUrl.value) {
             fetch(apiUrl.value, {
               method: "POST",
@@ -1624,6 +1929,7 @@
                 apiKey: secretKey.value,
                 trip: selectedTrip.value,
                 barcode: p.id,
+                passengerName: cleanName,
                 newStatus: newStatus
               })
             }).catch(e => console.error(e));
@@ -1788,19 +2094,45 @@
           return chars[0] + "O".repeat(len - 2) + chars[len - 1];
         };
 
+        // 依「列印名單範圍 (ticketPrintScope)」決定要印出的目標清單 (預設為跨行程合併總名單)
+        const ticketSourcePassengers = computed(() => {
+          let sourceList = [];
+          if (ticketPrintScope.value === "ALL_MERGED" && crossTripMasterData.value.masterList.length > 0) {
+            sourceList = crossTripMasterData.value.masterList;
+          } else if (ticketPrintScope.value === "DIFF_ONLY") {
+            sourceList = crossTripMasterData.value.diffOnlyList;
+          } else {
+            sourceList = enrichedPassengers.value;
+          }
+          if (selectedBus.value === "ALL") return sourceList;
+          return sourceList.filter(p => p.bus === selectedBus.value);
+        });
+
         // 廠商製貼紙專用不重複清單 (僅含流水碼與遮罩後姓名)
         const uniqueVendorList = computed(() => {
           const seen = new Set();
           const list = [];
-          filteredPassengers.value.forEach((p, idx) => {
-            const rawId = (p.id && p.id.toString().trim()) ? p.id.toString().trim() : `P${String(idx + 1).padStart(3, '0')}`;
-            if (seen.has(rawId)) return;
-            seen.add(rawId);
-            const qrCodeText = vendorCodeType.value === 'token' ? generateClientToken(rawId) : rawId;
+          ticketSourcePassengers.value.forEach((p, idx) => {
+            const cleanName = (p.name || "").toString().trim();
+            const rawId = (p.unifiedId || p.id || `P${String(idx + 1).padStart(3, '0')}`).toString().trim();
+            const dedupKey = cleanName || rawId;
+            if (seen.has(dedupKey)) return;
+            seen.add(dedupKey);
+
+            let qrCodeText = rawId;
+            if (vendorCodeType.value === 'universal') {
+              qrCodeText = p.universalCode || getPersonUniversalCode(cleanName, rawId);
+            } else if (vendorCodeType.value === 'token') {
+              qrCodeText = generateClientToken(rawId, cleanName);
+            }
+
             list.push({
               id: rawId,
+              name: cleanName,
+              bus: p.bus || '',
+              seat: p.seat || '',
               qrCodeText: qrCodeText,
-              maskedName: maskName(p.name)
+              maskedName: maskName(cleanName)
             });
           });
           return list;
@@ -1808,22 +2140,14 @@
 
         // 彩之舞 U4274JP-30 (A4 65格：13 列 × 5 欄，每格 38.1mm × 21.2mm) 固定尺寸 Table 二維陣列計算
         const paginatedTableRows = computed(() => {
-          const seen = new Set();
-          const uniqueItems = [];
-          filteredPassengers.value.forEach((p, idx) => {
-            const rawId = (p.id && p.id.toString().trim()) ? p.id.toString().trim() : `P${String(idx + 1).padStart(3, '0')}`;
-            if (seen.has(rawId)) return;
-            seen.add(rawId);
-            const qrCodeText = vendorCodeType.value === 'token' ? generateClientToken(rawId) : rawId;
-            uniqueItems.push({
-              isEmpty: false,
-              rawId,
-              qrCodeText,
-              name: p.name || '',
-              bus: p.bus || '',
-              seat: p.seat || ''
-            });
-          });
+          const uniqueItems = uniqueVendorList.value.map(item => ({
+            isEmpty: false,
+            rawId: item.id,
+            qrCodeText: item.qrCodeText,
+            name: item.name || '',
+            bus: item.bus || '',
+            seat: item.seat || ''
+          }));
 
           const activeRows = Math.max(1, Math.min(13, Number(rowsPerPage.value) || 12));
           const slotsPerPage = activeRows * 5;
@@ -1854,7 +2178,7 @@
 
         const saveCalibration = () => {
           try {
-            localStorage.setItem("U4274_CALIBRATION_V3", JSON.stringify({
+            localStorage.setItem("U4274_CALIBRATION_V4", JSON.stringify({
               stickerOrientation: stickerOrientation.value,
               marginPreset: marginPreset.value,
               topMarginMm: Number(topMarginMm.value) || 0,
@@ -1949,7 +2273,7 @@
           const url = URL.createObjectURL(blob);
           const link = document.createElement("a");
           link.setAttribute("href", url);
-          link.setAttribute("download", `QR貼紙廠商印製表單_${selectedTrip.value || '名單'}.csv`);
+          link.setAttribute("download", `QR貼紙廠商印製表單_${ticketPrintScope.value === 'ALL_MERGED' ? '跨行程總名單' : (selectedTrip.value || '名單')}.csv`);
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
@@ -2025,7 +2349,8 @@
             const el = document.getElementById("modal-qr");
             if (el) {
               el.replaceChildren();
-              const token = generateClientToken(passenger.id);
+              const unifiedId = passenger.unifiedId || passenger.id;
+              const token = generateClientToken(unifiedId, passenger.name || "");
               new QRCode(el, {
                 text: token,
                 width: 180,
@@ -2061,7 +2386,7 @@
           if (isGasNative.value || apiUrl.value) fetchTrips();
         });
 
-        watch([passengers, selectedBus, vendorCodeType], () => {
+        watch([passengers, allTripsPassengersMap, ticketPrintScope, selectedBus, vendorCodeType], () => {
           renderAllLocalQrCodes();
         });
 
@@ -2096,6 +2421,11 @@
           buses,
           selectedBus,
           passengers,
+          masterRosterStats,
+          syncingSheetIds,
+          syncStatusMsg,
+          syncUnifiedIdsToSheet,
+          ticketPrintScope,
           loading,
           currentTab,
           ticketSubMode,
